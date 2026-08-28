@@ -76,3 +76,12 @@ Step 8 / Phase 3B: added obj_regfile + extended decode to LD r,n and LD r,r' (re
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_regfile.sv — Z80 register-file object (8-bit regs, held-request bus slave)
 
+
+## 2026-08-28
+
+Step 9 / Phase 3C: added obj_alu + obj_flags + 8-bit ALU A,r/A,n (ADD/SUB/AND/XOR/OR/CP) with full flag model ported from z80_model.py. obj_alu.sv (combinational result+flags, parity/H/carry/overflow), obj_flags.sv (F register), decode +6-state ALU path (READ_A/READ_B|FETCH_IMM/OP/WRITE_A/WRITE_FLAGS). 5 differential tests vs oracle all PASS (ADD half-carry, SUB N, AND Z+H+PV, ADD A,B sign, ADD FF+01 carry+zero+H). Synth clean (~4760 cells). make test = mesh + 3A/3B/3C + 49 model tests. Fixed enum overflow (17 states -> 5 bits), enum ternary -> if/else.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_alu.sv — Z80 8-bit ALU object (ADD/SUB/AND/XOR/OR/CP + flags, ported from z80_model.py)
+

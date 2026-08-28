@@ -74,16 +74,55 @@ module tb_z80_core;
         if (dbg_faulted)                    begin $display("FAIL 3B2: faulted"); errors=errors+1; end
         if (errors==0) $display("3B2: LD A,0x11; LD C,0x22; LD D,A matches oracle (A=0x11 C=0x22 D=0x11 count=4)");
 
+        // ---- 3C: LD A,0x0F; ADD A,1 -> 0x10, H set, no C ----
+        errors = 0;
+        run_prog(8'h3E, 8'h0F, 8'hC6, 8'h01, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0x0F; ADD A,1; HALT
+        if (dut.u_regfile.dbg_a !== 8'h10) begin $display("FAIL 3C1: A=%h (oracle 0x10)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (dut.u_flags.dbg_f !== 8'h10) begin $display("FAIL 3C1: F=%h (oracle 0x10 H)", dut.u_flags.dbg_f); errors=errors+1; end
+        if (dbg_count !== 32'd3)            begin $display("FAIL 3C1: count=%0d (oracle 3)", dbg_count); errors=errors+1; end
+        if (errors==0) $display("3C1: ADD A,1 (0x0F+0x01) matches oracle (A=0x10 F=0x10 H)");
+
+        // ---- 3C: LD A,0x05; SUB 3 -> 0x02, N set ----
+        errors = 0;
+        run_prog(8'h3E, 8'h05, 8'hD6, 8'h03, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,5; SUB 3; HALT
+        if (dut.u_regfile.dbg_a !== 8'h02) begin $display("FAIL 3C2: A=%h (oracle 0x02)", dut.u_regfile.dbg_a); errors=errors+1; end
+        // F: N set, no C, no Z. N=0x02. Result 0x02 not zero, not sign. So F should have N bit only = 0x02.
+        if (dut.u_flags.dbg_f !== 8'h02) begin $display("FAIL 3C2: F=%h (oracle 0x02 N)", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3C2: SUB 3 (0x05-0x03) matches oracle (A=0x02 F=0x02 N)");
+
+        // ---- 3C: LD A,0xF0; AND 0x0F -> 0x00, Z set, H set ----
+        errors = 0;
+        run_prog(8'h3E, 8'hF0, 8'hE6, 8'h0F, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0xF0; AND 0x0F; HALT
+        if (dut.u_regfile.dbg_a !== 8'h00) begin $display("FAIL 3C3: A=%h (oracle 0x00)", dut.u_regfile.dbg_a); errors=errors+1; end
+        // F: Z(0x40) | H(0x10) | parity(0x04, even for 0) = 0x54
+        if (dut.u_flags.dbg_f !== 8'h54) begin $display("FAIL 3C3: F=%h (oracle 0x54 Z|H|PV)", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3C3: AND 0x0F (0xF0&0x0F) matches oracle (A=0x00 F=0x54 Z|H|PV)");
+
+        // ---- 3C: LD B,0x42; LD A,B; ADD A,B -> 0x84, S set (register operand) ----
+        errors = 0;
+        run_prog(8'h06, 8'h42, 8'h78, 8'h80, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD B,0x42; LD A,B; ADD A,B; HALT
+        if (dut.u_regfile.dbg_a !== 8'h84) begin $display("FAIL 3C4: A=%h (oracle 0x84)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h80) === 8'h00) begin $display("FAIL 3C4: S not set (oracle S)", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3C4: ADD A,B (0x42+0x42) matches oracle (A=0x84 S set)");
+
+        // ---- 3C: LD A,0xFF; ADD A,1 -> 0x00, C set, Z set, H set (0xF+0x1>0xF) ----
+        errors = 0;
+        run_prog(8'h3E, 8'hFF, 8'hC6, 8'h01, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0xFF; ADD A,1; HALT
+        if (dut.u_regfile.dbg_a !== 8'h00) begin $display("FAIL 3C5: A=%h (oracle 0x00)", dut.u_regfile.dbg_a); errors=errors+1; end
+        // F: Z(0x40) | H(0x10) | C(0x01) = 0x51. (-1+1=0: no signed overflow PV; H set 0xF+0x1>0xF)
+        if (dut.u_flags.dbg_f !== 8'h51) begin $display("FAIL 3C5: F=%h (oracle 0x51 Z|H|C)", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3C5: ADD A,1 (0xFF+0x01) matches oracle (A=0x00 F=0x51 Z|H|C)");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A/3B object graph (NOP/HALT + LD r,n/r,r') matches oracle");
+            $display("PASS: Phase 3A/3B/3C object graph (NOP/HALT + LD + ALU) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;
     end
 
     initial begin
-        #200000;
+        #1000000;
         $display("FAIL: watchdog timeout");
         $finish;
     end

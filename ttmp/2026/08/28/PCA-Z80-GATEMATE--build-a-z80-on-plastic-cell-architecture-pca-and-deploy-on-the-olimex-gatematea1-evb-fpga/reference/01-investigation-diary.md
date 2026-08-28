@@ -597,6 +597,79 @@ This step added the register-file object (`obj_regfile`) and extended the decode
 - Portability rules added: V2K function style (assign to name, no `return`); `&`/`|` not `&&`/`||` in functions.
 - Slips printed: (P3 START was Step 7). 3B milestone slip to follow.
 
+## Step 9: Build Phase 3 — milestone 3C (obj_alu + obj_flags + 8-bit ALU)
+
+This step added the 8-bit ALU (`obj_alu`) and flags (`obj_flags`) objects and extended the decode master to execute `ALU A,r` and `ALU A,n` (ADD/SUB/AND/XOR/OR/CP) with the full flag model (S/Z/H/PV/N/C) ported from `z80_model.py`'s `_add8`/`_sub8`/`_logic8`. Five directed differential tests pass against the oracle: ADD (half-carry), SUB (N flag), AND (Z+H+parity), ADD A,B (register operand, sign), ADD 0xFF+0x01 (carry+zero+half-carry, no overflow). The object graph now retires NOP/HALT/LD/ALU and the core synthesizes clean (~4760 cells). This proves the object bus can carry a compute slave (the ALU returns {flags,result} in one transaction) and the flag model is bit-accurate against the oracle — the foundation for 3D-3F.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Continue Phase 3 with milestone 3C — the ALU + flags objects and the 8-bit ALU instructions, differential-tested against the oracle's flag model.
+
+**Inferred user intent:** A bit-accurate ALU on the object bus, proving the flag model ports from Python to SystemVerilog and the decode FSM scales to multi-step execute paths (read A, read operand/imm, ALU op, write A, write flags).
+
+**Commit (code/docs):** (this step) Phase 3C ALU + flags.
+
+### What I did
+- Extended `rtl/z80_obj.sv` with ALU sub-ops (ALU_ADD/SUB/AND/XOR/OR/CP, matching ALU_OPS indices) and flags sub-ops (FLAGS_READ/WRITE). Defined the ALU transaction contract: `wdata={a,b}`, `rdata={new_flags,result}` (one transaction returns both, so CP sets flags without writing A).
+- Wrote `rtl/obj_alu.sv`: a held-request slave computing the 8-bit result + flags combinationally on capture, porting `_add8`/`_sub8`/`_logic8` exactly: half-carry `(a&0xF)+(b&0xF)>0xF`, carry `add_res[8]`, signed overflow `(a^r8)&(b^r8)&0x80` (add) / `(a^b)&(a^r8)&0x80` (sub), parity via XOR-reduction tree, S/Z/F5/F3 from the result byte, H for AND, N for SUB/CP.
+- Wrote `rtl/obj_flags.sv`: a held-request slave holding the 8-bit F register (FLAGS_WRITE/READ).
+- Extended `rtl/obj_decode.sv` with the ALU execute path: `S_DECODE` dispatches ALU A,r (0x80-0xBF excluding ADC/SBC) and ALU A,n (0xC6/0xD6/0xE6/0xEE/0xF6/0xFE) to a 6-state sequence `S_ALU_READ_A → (S_ALU_READ_B | S_ALU_FETCH_IMM→S_ALU_INC_IMM) → S_ALU_OP → S_ALU_WRITE_A (skip for CP) → S_ALU_WRITE_FLAGS → retire`. Helper functions `is_alu_r`/`is_alu_n`/`alu_op_of` map opcodes to ALU ops. `alu_is_cp` skips the A write for CP.
+- Wired `obj_alu` + `obj_flags` into `rtl/z80_core.sv` (5 slaves now: pc/memio/regfile/alu/flags; OR-ack + 5-way rdata mux).
+- Added 5 differential tests to `sim/tb_z80_core.sv` (3C1 ADD 0x0F+0x01→0x10 F=0x10 H; 3C2 SUB 5-3→0x02 F=0x02 N; 3C3 AND 0xF0&0x0F→0x00 F=0x54 Z|H|PV; 3C4 ADD A,B 0x42+0x42→0x84 S; 3C5 ADD 0xFF+0x01→0x00 F=0x51 Z|H|C).
+- Fixed: enum width 4→5 bits (17 states overflowed); enum ternary → if/else (iverilog explicit-cast rule); watchdog 200us→1000us (5+ programs need room); applied `z80_obj::` scoping to the two new objects.
+- Confirmed Yosys synthesis (0 errors, ~4760 cells) and the full regression.
+
+### Why
+3C's exit (design doc §13) is "8-bit ALU + flags" — the first compute instruction, which proves the object bus can carry a slave that *returns* a computed result (not just stores/loads), and that the Z80 flag model ports bit-accurately from the Python oracle to RTL. The flag model is the Z80's trickiest part (PV is parity-vs-overflow, H is nibble carry, F5/F3 are undocumented copies); getting it right against the oracle now means 3D-3F's conditional jumps (which read flags) have a correct input.
+
+### What worked
+- Porting `_add8`/`_sub8`/`_logic8` line-for-line into `obj_alu`'s combinational block made the flags bit-accurate on the first run; the only failure was a wrong *test* expectation (I expected PV for 0xFF+0x01; the oracle correctly omits it since -1+1=0 is not signed overflow) — the RTL was right, the test was wrong.
+- Returning `{flags,result}` from the ALU in one transaction kept CP (which sets flags but discards the result) clean: the decode skips `S_ALU_WRITE_A` via `alu_is_cp` but still runs `S_ALU_WRITE_FLAGS`.
+- The decode FSM's 6-state ALU path is the template for 3D-3F's multi-step execute sequences.
+
+### What didn't work
+- **Enum overflow** (17 states in 4 bits) — `S_FAULT` wrapped to 0, colliding with `S_FETCH_PC`; fixed by widening to `logic [4:0]`.
+- **Enum ternary** (`state <= cond ? S_A : S_B`) — iverilog requires an explicit cast; fixed with if/else.
+- **Watchdog too short** (200us < 5×50us of programs) — fixed to 1000us.
+- **Wrong test expectation** for 3C5 (expected PV; oracle omits it) — fixed the test; the RTL was correct.
+- **Makefile `Z80_RTL` missing the two new objects** (the sed didn't match) — fixed with a direct edit.
+
+### What I learned
+- The Z80 PV flag is the subtlety: it's parity for logic ops and signed-overflow for arithmetic, and `-1+1=0` does NOT overflow (the result fits in 7 bits' sign range). The oracle's formula `(a^r8)&(b^r8)&0x80` for add correctly excludes this case; my RTL ported it verbatim and matched.
+- The ALU-as-bus-slave pattern (one transaction returns compute + flags) generalizes: any future compute object (shifter in 3C.5, 16-bit adder in 3D) returns its result the same way, and the decode's `S_ALU_OP → S_ALU_WRITE_*` sequence is reused.
+- The decode FSM state count is growing (17); 3D-3F will add more (16-bit, control, stack). 5 bits is enough for now but watch the width.
+
+### What was tricky to build
+- The ALU A,r vs ALU A,n divergence in `S_ALU_READ_A`: ALU A,r must read the operand register (S_ALU_READ_B), ALU A,n already has the operand in `alu_b` (from S_ALU_FETCH_IMM) and goes straight to S_ALU_OP. Symptom: a wrong branch reads a stale register or skips the operand. Resolution: dispatch on `(ir >= 0x80) && (ir <= 0xBF)` (the r-form range) — the n-form opcodes (0xC6+) are outside it, so they skip to S_ALU_OP.
+- The flag model's signed-overflow formula. Symptom: easy to set PV when carry also occurs (the classic confusion). Resolution: ported the oracle's exact two-clause formula and verified against 0x7F+0x01 (overflow, no carry) and 0xFF+0x01 (carry, no overflow).
+
+### What warrants a second pair of eyes
+- The parity function (XOR-reduction tree) — confirm it matches the oracle's `bin(v).count('1')%2==0` for a few values (the AND test 3C3 covers 0x00 → even → PV set).
+- The `alu_op_of` mapping for n-form opcodes (0xC6→ADD=0, 0xD6→SUB=2, 0xE6→AND=4, 0xEE→XOR=5, 0xF6→OR=6, 0xFE→CP=7) — confirm against ALU_OPS in z80_isa.py (matches).
+- The F5/F3 undocumented copies (`r8 & (F_F5|F_F3)`) — the oracle does this in `_set_sz`; the RTL ports it; confirm against a result with bits 5/3 set (3C4 0x84 has bit 7 only, doesn't exercise F5/F3).
+
+### What should be done in the future
+- 3C.5: ADC/SBC (carry-in from flags — read F before the ALU op) and the INC/DEC r variants (write to r, not A; no operand read).
+- 3D: 16-bit ADD HL,rr + INC/DEC rr + LD rr,nn (extend the regfile to 16-bit pairs or compose H:L).
+- 3E: control (JP/JR/CALL/RET) reading flags for condition codes.
+- Add tests exercising F5/F3 (result with bits 5/3 set) and XOR/OR (3C only tested AND among the logic ops for full flags).
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: Phase 3A/3B/3C object graph (NOP/HALT + LD + ALU) matches oracle`.
+- `make test` — expect mesh PASS, 3A/3B/3C PASS, 49 model tests passed.
+- Synthesize: `yosys -p 'read_verilog -defer -sv rtl/z80_obj.sv rtl/obj_pc.sv rtl/obj_memio.sv rtl/obj_regfile.sv rtl/obj_alu.sv rtl/obj_flags.sv rtl/obj_decode.sv rtl/z80_core.sv <top>; synth_gatemate -top <top> -luttree -nomx8'` — expect 0 errors.
+- Read `obj_alu.sv`'s combinational flag block against `z80_model.py`'s `_add8`/`_sub8`/`_logic8` for bit-accuracy.
+
+### Technical details
+- Files: `rtl/z80_obj.sv` (+ALU/FLAGS sub-ops), `rtl/obj_alu.sv` (new), `rtl/obj_flags.sv` (new), `rtl/obj_decode.sv` (+ALU path, 6 states), `rtl/z80_core.sv` (+alu/flags slaves), `sim/tb_z80_core.sv` (+5 ALU tests).
+- Oracle expected: 3C1 A=0x10 F=0x10(H); 3C2 A=0x02 F=0x02(N); 3C3 A=0x00 F=0x54(Z|H|PV); 3C4 A=0x84 S; 3C5 A=0x00 F=0x51(Z|H|C). RTL matches all.
+- Synth (top_zc): 0 errors, ~4760 cells.
+- `make test`: mesh + 3A/3B/3C + 49 model tests.
+- Portability rules added: enum width ≥ states; enum ternary → if/else.
+- Slips: (P3 START was Step 7, 3B done Step 8). 3C milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

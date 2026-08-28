@@ -26,7 +26,7 @@ module z80_core #(
     z80_obj::bus_req_t  bus_req;
     z80_obj::bus_resp_t bus_resp;
 
-    z80_obj::bus_resp_t pc_resp, mem_resp, reg_resp;
+    z80_obj::bus_resp_t pc_resp, mem_resp, reg_resp, alu_resp, flags_resp;
 
     // Master drives the bus; slaves share it.
     obj_decode u_decode (
@@ -55,10 +55,24 @@ module z80_core #(
         .dbg_h(), .dbg_l(), .dbg_a(), .dbg_f()
     );
 
+    obj_alu u_alu (
+        .clk(clk), .rst_n(rst_n),
+        .bus_req(bus_req), .bus_resp(alu_resp)
+    );
+
+    obj_flags u_flags (
+        .clk(clk), .rst_n(rst_n),
+        .bus_req(bus_req), .bus_resp(flags_resp),
+        .dbg_f()
+    );
+
     // Bus response aggregation: only the addressed slave acks.
-    assign bus_resp.ack   = pc_resp.ack | mem_resp.ack | reg_resp.ack;
-    assign bus_resp.rdata = pc_resp.ack  ? pc_resp.rdata  :
-                             mem_resp.ack ? mem_resp.rdata : reg_resp.rdata;
+    assign bus_resp.ack   = pc_resp.ack | mem_resp.ack | reg_resp.ack
+                             | alu_resp.ack | flags_resp.ack;
+    assign bus_resp.rdata = pc_resp.ack   ? pc_resp.rdata   :
+                             mem_resp.ack  ? mem_resp.rdata  :
+                             reg_resp.ack  ? reg_resp.rdata  :
+                             alu_resp.ack  ? alu_resp.rdata  : flags_resp.rdata;
 endmodule
 
 `default_nettype wire

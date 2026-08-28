@@ -44,6 +44,22 @@ package z80_obj;
   // Index 8 = F (flags); used from 3C onward.
   localparam logic [15:0] REG_READ  = 16'h0000;  // read  -> rdata[7:0] = reg[addr[3:0]]
   localparam logic [15:0] REG_WRITE = 16'h0001;  // write -> reg[addr[3:0]] = wdata[7:0]
+
+  // ALU object sub-ops (addr field when obj==OBJ_ALU). Matches ALU_OPS index
+  // in z80_isa.py: 0=ADD,1=ADC,2=SUB,3=SBC,4=AND,5=XOR,6=OR,7=CP.
+  // wdata = {a[7:0], b[7:0]} (a=high byte, b=low byte).
+  // rdata = {new_flags[7:0], result[7:0]} (flags=high, result=low).
+  // 3C implements ADD/SUB/AND/OR/XOR/CP (no carry-in); ADC/SBC in 3C.5.
+  localparam logic [15:0] ALU_ADD = 16'h0000;
+  localparam logic [15:0] ALU_SUB = 16'h0002;
+  localparam logic [15:0] ALU_AND = 16'h0004;
+  localparam logic [15:0] ALU_XOR = 16'h0005;
+  localparam logic [15:0] ALU_OR  = 16'h0006;
+  localparam logic [15:0] ALU_CP  = 16'h0007;
+
+  // Flags object sub-ops (addr field when obj==OBJ_FLAGS).
+  localparam logic [15:0] FLAGS_READ  = 16'h0000;  // read  -> rdata[7:0] = F
+  localparam logic [15:0] FLAGS_WRITE = 16'h0001;  // write -> F = wdata[7:0]
 endpackage : z80_obj
 
 `default_nettype wire

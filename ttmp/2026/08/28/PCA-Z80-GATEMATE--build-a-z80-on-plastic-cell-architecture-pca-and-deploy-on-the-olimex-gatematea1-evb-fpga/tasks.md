@@ -54,7 +54,7 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] 3A fetch/NOP/HALT — directed differential vs oracle (PASS; synth clean ~995 cells)
 - [x] 3B LD immediate/register — add obj_regfile, extend decode (PASS; synth clean ~4443 cells)
 - [ ] 3B.5 LD r,(HL)/(HL),r + LD A,(BC)/(DE)/(nn) (memory-operand LDs)
-- [ ] 3C 8-bit ALU + flags — add obj_alu, obj_flags
+- [x] 3C 8-bit ALU + flags — add obj_alu, obj_flags (PASS; synth clean ~4760 cells)
 - [ ] 3D 16-bit + IX/IY
 - [ ] 3E JP/JR/CALL/RET
 - [ ] 3F stack + I/O + faults

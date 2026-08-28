@@ -26,7 +26,7 @@ PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cel
 SIM_MESH_SRCS := $(PCA_RTL) $(SIM_DIR)/tb_pca_mesh.sv
 
 # Phase 3: the Z80 object graph (bus contract + objects + core) + testbench.
-Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
+Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
 SIM_CORE_SRCS := $(Z80_RTL) $(SIM_DIR)/tb_z80_core.sv
 
 .PHONY: all versions test sim synth pnr bit load clean
