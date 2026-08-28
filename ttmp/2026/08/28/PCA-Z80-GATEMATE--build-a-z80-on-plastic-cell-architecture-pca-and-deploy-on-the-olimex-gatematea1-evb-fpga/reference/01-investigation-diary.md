@@ -1344,6 +1344,71 @@ IX/IY is the last item in the goal's "16-bit + IX/IY." The DD/FD prefix is the Z
 - Synth: 0 errors. `make test` green (mesh + object graph + 49 model + 20 asm + 6 integ).
 - Slips: 3D.6 done (Step 18). 3D.7 milestone slip to follow.
 
+## Step 21: Build Phase 6 — UART TX (Z80 emits 'Hi' over UART, completing the 'LED+UART' bring-up)
+
+This step added a UART transmitter so the Z80 emits 'Hi' over the memory-mapped UART, completing the Phase 6 'LED+UART' hardware bring-up (in sim; the board isn't connected). Reused the sibling MATE-16's verified `uart_tx.sv` (8-N-1, 115200 baud at 10 MHz). Added a UART write port to `obj_memio` (write to addr 0x0001 → latch the byte + a one-cycle start pulse), wired `uart_tx` into `z80_core` and `top.sv` (uart_tx_pin). Wrote `programs/hello.asm` (LD A,0x48; LD (1),A; DEC B delay; LD A,0x69; LD (1),A; delay; LED on; HALT) and `sim/tb_hello.sv` (instantiates `top`, loads hello.hex, a UART RX monitor samples the tx pin at the bit centers and decodes bytes). The monitor decoded 0x48 0x69 = 'Hi' — **PASS: Phase 6 LED+UART (Z80 emits 'Hi' over UART)**. The full regression stays green and the UART-top synthesizes clean. `make sim_hello` is the target.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Complete Phase 6's 'hardware bring-up LED+UART' — the UART half (the LED half was done in Step 14) — by adding a UART TX driven by Z80 writes, sim-verified to emit 'Hi'.
+
+**Inferred user intent:** A Z80 that drives both the LED and the UART, the full Phase 6 hardware bring-up (in sim, since the board is offline).
+
+**Commit (code/docs):** (this step) Phase 6 UART TX.
+
+### What I did
+- Copied the sibling's `rtl/uart_tx.sv` (8-N-1, 10-bit shift register + baud divider, one-cycle start, ready/tx).
+- Added a UART write port to `obj_memio`: write to addr 0x0001 latches the byte and sets `uart_start_q` for one cycle (a single acceptance edge — the MATE-16 anti-double rule; `uart_start = uart_start_q & sel` so it pulses only while selected). Exposed `uart_tx_data`/`uart_tx_start`/`uart_tx_ready`.
+- Wired `uart_tx` into `z80_core` (uart_tx_data/start/ready ports) and `top.sv` (the uart_tx module → uart_tx_pin; removed the old idle-high assign that caused a multiple-driver error).
+- Wrote `programs/hello.asm` (LD A,0x48; LD (1),A; DEC B delay loop; LD A,0x69; LD (1),A; delay; LD A,1; LD (0),A; HALT) — emits 'Hi' then lights the LED.
+- Wrote `sim/tb_hello.sv`: instantiates `top`, loads hello.hex, and a UART RX monitor that waits for the start bit, centers, samples 8 data bits at BIT_CYC intervals, and collects bytes (avoided iverilog's unsupported `string` type — used a byte array + integer comparison). Decoded 0x48 0x69 = 'Hi'.
+- Updated `tb_z80_core`/`tb_z80_integ` to wire z80_core's new UART ports (uart_tx_ready=1, outputs unconnected).
+- Wired `make sim_hello` into the Makefile; confirmed the full regression stays green and the UART-top synthesizes clean.
+
+### Why
+Phase 6's exit (design doc §13 / the goal) is 'hardware bring-up LED+UART.' The LED half (Step 14) drove GPIO bit 0 from Z80 `LD (0),A`; the UART half (this step) drives a UART transmitter from Z80 `LD (1),A`. Together they're the full Phase 6 bring-up, sim-verified (the board is offline, so the physical load remains the one environmental step). Reusing the sibling's verified uart_tx.sv de-risked the serial side; the only new work was the memory-mapped port and the Z80 program.
+
+### What worked
+- The sibling's uart_tx.sv worked first try (it's verified from MATE-16); the memory-mapped write port (addr 0x0001 → byte + one-cycle start) was a small obj_memio addition.
+- The UART RX monitor (sample at bit centers) decoded 'Hi' exactly — the Z80's byte writes and the uart_tx serialization are correct.
+- The DEC B delay loop (256 iterations ≈ 2560 cycles > 870 cycles/byte) ensured the UART was ready between bytes without a status read.
+
+### What didn't work
+- **iverilog `string` type crash** (the monitor used `string received` + `$char` + concatenation) — iverilog's SV string support is incomplete (an eval_string assertion). Fixed with a byte array + integer compare.
+- **Multiple-driver on uart_tx_pin** — the old `assign uart_tx_pin = 1'b1` (idle-high placeholder) conflicted with the uart_tx module's `tx` drive; removed it.
+- **A stale `default.hex` warning** — obj_memio's `$readmemh(\`ROM_FILE)` uses a default when ROM_FILE isn't defined (sim); harmless (the testbench's $readmemh overrides after).
+
+### What I learned
+- The memory-mapped I/O pattern (GPIO at addr 0, UART at addr 1) extends the baseline I/O without an OUT/IN instruction; each new port is an address-decode branch in obj_memio. A real Z80 port I/O space (OUT/IN, separate from memory) is a 3F.5b add.
+- iverilog's SV support is uneven: strings crash, but packed structs, enums, and `automatic` tasks work. The portable subset (locked since Phase 1) held; strings are a new exclusion.
+- The Z80 + UART is a complete Phase 6 bring-up in sim: the CPU executes a real assembled program that drives both a GPIO LED and a UART transmitter. Only the physical board load is missing (environmental).
+
+### What was tricky to build
+- The UART RX monitor timing (center on the start bit, sample data bits at BIT_CYC). Symptom: off-by-one bit alignment would decode garbage. Resolution: half-bit to the start-bit center, then full-bit steps to each data-bit center, matching the sibling's approach; decoded 0x48 0x69 exactly.
+- The iverilog string crash (see What didn't work) — resolved by avoiding the string type entirely.
+
+### What warrants a second pair of eyes
+- The baud timing (BIT_CYC = 10MHz/115200 = 87 cycles/bit, integer truncation → ~0.22% error, within UART tolerance) — confirm against the sibling's verified divider (matches).
+- The UART start pulse (`uart_start_q & sel`) — confirm it's a clean one-cycle pulse that doesn't re-trigger (the anti-double rule); the monitor decoded exactly 2 bytes, so it held.
+- The LED=0 in the test (the monitor finished before the LED-on write) — the LED part is verified separately by the blink testbench (Step 14); the hello test focuses on UART.
+
+### What should be done in the future
+- The physical board load: `openFPGALoader -b olimex_gatemateevb build/top.bit` + observe the LED and the UART output ('Hi') on a serial terminal — the one environmental step.
+- A real OUT/IN port I/O space (3F.5b) so the Z80 uses the standard I/O map, not memory-mapped.
+- The full DD/FD substitution + ED (block) prefix; the full PCA mesh integration (placer).
+
+### Code review instructions
+- `cd pca_z80 && make sim_hello` — expect `PASS: Phase 6 LED+UART (Z80 emits 'Hi' over UART)`.
+- `make test` — expect mesh + object graph + 49 model + 20 assembler + 6 integration.
+- `make bit` — builds the UART-top bitstream (synth clean).
+
+### Technical details
+- Files: `rtl/uart_tx.sv` (copied from MATE-16), `rtl/obj_memio.sv` (+UART port), `rtl/z80_core.sv` (+UART ports), `rtl/top.sv` (+uart_tx), `programs/hello.asm`, `sim/tb_hello.sv`, `Makefile` (+sim_hello).
+- Sim: decoded 0x48 0x69 = 'Hi' (PASS Phase 6 LED+UART). Synth clean. `make test` green.
+- Slips: report updated (§2.2 UART). Phase 6 done slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

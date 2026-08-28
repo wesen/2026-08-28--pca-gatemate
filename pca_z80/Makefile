@@ -31,6 +31,10 @@ PROG ?= blink
 PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cell.sv $(RTL_DIR)/pca_mesh.sv
 SIM_MESH_SRCS := $(PCA_RTL) $(SIM_DIR)/tb_pca_mesh.sv
 
+# Phase 6: board top (z80_core + reset_sync + uart_tx + top) for hello sim.
+TOP_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/uart_tx.sv $(RTL_DIR)/top.sv
+SIM_HELLO_SRCS := $(TOP_RTL) $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_hello.sv
+
 # Phase 3: the Z80 object graph (bus contract + objects + core) + testbench.
 Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
 SIM_CORE_SRCS := $(Z80_RTL) $(SIM_DIR)/tb_z80_core.sv
@@ -78,6 +82,14 @@ test_assembler:
 .PHONY: test_integ
 test_integ:
 	python3 -m pytest sim/test_integ.py -q
+
+# Phase 6 UART bring-up sim (Z80 emits 'Hi' over the memory-mapped UART).
+.PHONY: sim_hello
+sim_hello:
+	@mkdir -p $(BUILD)
+	python3 tools/zasm.py programs/hello.asm -o $(BUILD) -n hello
+	iverilog -g2012 -s tb_hello -o $(BUILD)/hello.vvp $(SIM_HELLO_SRCS)
+	vvp $(BUILD)/hello.vvp | tee $(BUILD)/hello_sim.log
 
 # Phase 1 substrate simulation.
 .PHONY: sim_mesh

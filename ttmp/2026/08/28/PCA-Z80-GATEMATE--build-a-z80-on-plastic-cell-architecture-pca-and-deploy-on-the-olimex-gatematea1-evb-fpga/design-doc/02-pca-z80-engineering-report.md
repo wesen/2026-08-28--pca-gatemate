@@ -172,9 +172,10 @@ instructions, not a hardware counter.
 
 1. **No DD/FD (IX/IY) or ED (block) prefixes** in the decode/assembler (the
    model implements them). The largest gap to a "full Z80."
-2. **Memory-mapped GPIO, not real OUT/IN** — the baseline I/O map writes
-   address 0x0000 to drive GPIO; a real Z80 port I/O space (OUT/IN) is a 3F.5b
-   add.
+2. **Memory-mapped GPIO and UART, not real OUT/IN** — the baseline I/O map writes
+   address 0x0000 to drive GPIO (LED) and 0x0001 to drive the UART transmitter;
+   a real Z80 port I/O space (OUT/IN) is a 3F.5b add. The UART TX (8-N-1,
+   115200 baud) is wired in `top.sv` and sim-verified to emit "Hi".
 3. **Memory map simplification** — reads at addr < ROM_DEPTH (256) hit ROM,
    ≥256 hit RAM; writes hit RAM except addr 0 (GPIO). The model has a flat 64K,
    so the integration harness tests ROM-only programs; RAM-touching programs

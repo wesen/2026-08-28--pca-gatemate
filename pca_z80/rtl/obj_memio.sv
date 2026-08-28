@@ -20,7 +20,10 @@ module obj_memio #(
     input  logic      rst_n,
     input  z80_obj::bus_req_t  bus_req,
     output z80_obj::bus_resp_t bus_resp,
-    output logic [7:0] gpio_out       // GPIO output port (write addr 0x0000)
+    output logic [7:0] gpio_out,       // GPIO output port (write addr 0x0000)
+    output logic [7:0] uart_tx_data,    // UART TX data (write addr 0x0001)
+    output logic       uart_tx_start,   // UART TX start pulse (one cycle)
+    input  logic       uart_tx_ready    // UART TX ready (from uart_tx)
 );
     // Program ROM (byte-addressed, synchronous-read for BRAM inference).
     // ROM init at synthesis via $readmemh of the file named by `ROM_FILE
@@ -34,9 +37,12 @@ module obj_memio #(
     logic        captured;
     logic [15:0] addr_q;
     logic        we_q;
+    logic [7:0]  uart_byte_q;
+    logic        uart_start_q;
     wire sel = bus_req.req && (bus_req.obj == z80_obj::OBJ_MEM);
-    // I/O space: addr 0x0000 = GPIO output port (the baseline's only port).
+    // I/O space: addr 0x0000 = GPIO output; addr 0x0001 = UART TX data.
     wire is_gpio = (bus_req.addr == 16'h0000);
+    wire is_uart = (bus_req.addr == 16'h0001);
 
     initial begin
         for (int i = 0; i < ROM_DEPTH; i++) rom[i] = 8'h00;  // fill NOP
@@ -52,6 +58,8 @@ module obj_memio #(
             rom_q    <= 8'h00;
             ram_q    <= 8'h00;
             gpio     <= 8'h00;
+            uart_byte_q <= 8'h00;
+            uart_start_q <= 1'b0;
         end else begin
             if (sel && !captured) begin
                 captured <= 1'b1;
@@ -61,10 +69,12 @@ module obj_memio #(
                 ram_q     <= ram[bus_req.addr[$clog2(RAM_WORDS)-1:0]];
                 if (bus_req.we) begin
                     if (is_gpio) gpio <= bus_req.wdata[7:0];
+                    else if (is_uart) begin uart_byte_q <= bus_req.wdata[7:0]; uart_start_q <= 1'b1; end
                     else ram[bus_req.addr[$clog2(RAM_WORDS)-1:0]] <= bus_req.wdata[7:0];
                 end
             end else if (!sel) begin
                 captured <= 1'b0;
+                uart_start_q <= 1'b0;   // start is a one-cycle pulse
             end
         end
     end
@@ -72,6 +82,8 @@ module obj_memio #(
     assign bus_resp.ack   = sel && captured;
     assign bus_resp.rdata  = we_q ? 16'h0000 : {8'h00, (addr_q < ROM_DEPTH) ? rom_q : ram_q};
     assign gpio_out       = gpio;
+    assign uart_tx_data   = uart_byte_q;
+    assign uart_tx_start  = uart_start_q & sel;   // pulse only while selected
 endmodule
 
 `default_nettype wire

@@ -21,6 +21,7 @@ module tb_z80_integ #(parameter string ROM_FILE = "build/integ.hex") ();
     z80_core dut (
         .clk(clk), .rst_n(rst_n),
         .dbg_ir(dbg_ir), .dbg_pc(dbg_pc), .dbg_r(dbg_r), .dbg_sp(dbg_sp),
+        .gpio_out(), .uart_tx_data(), .uart_tx_start(), .uart_tx_ready(1'b1),
         .dbg_count(dbg_count), .dbg_halted(dbg_halted), .dbg_faulted(dbg_faulted)
     );
 

@@ -16,9 +16,11 @@ module tb_z80_core;
     logic [7:0]  dbg_ir; logic [15:0] dbg_pc; logic [7:0] dbg_r; logic [15:0] dbg_sp;
     logic [31:0] dbg_count; logic dbg_halted, dbg_faulted;
 
+    logic [7:0]  gpio; logic [7:0] uart_d; logic uart_s, uart_r = 1'b1;
     z80_core dut (
         .clk(clk), .rst_n(rst_n),
         .dbg_ir(dbg_ir), .dbg_pc(dbg_pc), .dbg_r(dbg_r), .dbg_sp(dbg_sp),
+        .gpio_out(gpio), .uart_tx_data(uart_d), .uart_tx_start(uart_s), .uart_tx_ready(uart_r),
         .dbg_count(dbg_count), .dbg_halted(dbg_halted), .dbg_faulted(dbg_faulted)
     );
 

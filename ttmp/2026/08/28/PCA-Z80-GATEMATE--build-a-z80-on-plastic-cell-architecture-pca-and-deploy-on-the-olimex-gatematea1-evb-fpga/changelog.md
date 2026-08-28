@@ -184,3 +184,12 @@ Step 20 / Phase 3D.7: added DD/FD (IX/IY) prefix subset (LD IX,nn / INC-DEC IX /
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_regfile.sv — Z80 register file (8-bit + 16-bit pairs BC/DE/HL/AF + IX/IY)
 
+
+## 2026-08-28
+
+Step 21 / Phase 6: added UART TX (Z80 emits 'Hi' over UART, completing LED+UART bring-up in sim). Reused MATE-16 uart_tx.sv (8-N-1 115200 baud). obj_memio +UART write port (addr 0x0001 -> byte + 1-cycle start). z80_core +top wire uart_tx -> uart_tx_pin. programs/hello.asm (LD A,0x48; LD (1),A; delay; LD A,0x69; LD (1),A; LED on; HALT). tb_hello.sv UART RX monitor decoded 0x48 0x69 = 'Hi' (PASS Phase 6 LED+UART). Fixed iverilog string crash (byte array), multiple-driver on uart_tx_pin. make sim_hello target. Full regression green; UART-top synth clean. make test = mesh + object graph + 49 model + 20 asm + 6 integ. Board load remains the one environmental step.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/uart_tx.sv — 8-N-1 UART transmitter (reused from MATE-16, Z80-driven via memory-mapped port)
+
