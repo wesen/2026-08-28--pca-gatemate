@@ -64,6 +64,10 @@ package z80_obj;
   localparam logic [15:0] ALU_XOR = 16'h0005;
   localparam logic [15:0] ALU_OR  = 16'h0006;
   localparam logic [15:0] ALU_CP  = 16'h0007;
+  // INC/DEC r (3F.5): wdata = {a[7:0], cur_flags[7:0]} (cur_flags preserved C).
+  // rdata = {new_flags[7:0], result[7:0]} (C preserved from cur_flags).
+  localparam logic [15:0] ALU_INC  = 16'h0008;
+  localparam logic [15:0] ALU_DEC  = 16'h0009;
 
   // Flags object sub-ops (addr field when obj==OBJ_FLAGS).
   localparam logic [15:0] FLAGS_READ  = 16'h0000;  // read  -> rdata[7:0] = F

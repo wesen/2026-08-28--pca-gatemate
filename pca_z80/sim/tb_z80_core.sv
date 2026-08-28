@@ -162,9 +162,32 @@ module tb_z80_core;
         if (dut.dbg_sp !== 16'hFFFF) begin $display("FAIL 3F2: SP=%h (oracle FFFF)", dut.dbg_sp); errors=errors+1; end
         if (errors==0) $display("3F2: PUSH BC/POP DE matches oracle (D=0x12 E=0x34 SP=FFFF)");
 
+        // ---- 3F.5: INC B (0x7F -> 0x80, S+PV+H) ----
+        errors = 0;
+        run_prog(8'h06, 8'h7F, 8'h04, 8'h76, 8'h00, 8'h00, 8'h00, 8'h00, 4);  // LD B,0x7F; INC B; HALT
+        if (dut.u_regfile.dbg_b !== 8'h80) begin $display("FAIL 3F5a: B=%h (oracle 0x80)", dut.u_regfile.dbg_b); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h80) === 8'h00) begin $display("FAIL 3F5a: S not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h04) === 8'h00) begin $display("FAIL 3F5a: PV not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3F5a: INC B (0x7F->0x80) matches oracle (S+PV)");
+
+        // ---- 3F.5: DEC A (0x00 -> 0xFF, S+N+H) ----
+        errors = 0;
+        run_prog(8'h3E, 8'h00, 8'h3D, 8'h76, 8'h00, 8'h00, 8'h00, 8'h00, 4);  // LD A,0; DEC A; HALT
+        if (dut.u_regfile.dbg_a !== 8'hFF) begin $display("FAIL 3F5b: A=%h (oracle 0xFF)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h02) === 8'h00) begin $display("FAIL 3F5b: N not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h10) === 8'h00) begin $display("FAIL 3F5b: H not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3F5b: DEC A (0->0xFF) matches oracle (N+H+S)");
+
+        // ---- 3F.5: DEC B loop (LD B,3; loop: DEC B; JR NZ,loop; HALT -> B=0) ----
+        errors = 0;
+        run_prog(8'h06, 8'h03, 8'h05, 8'h20, 8'hFD, 8'h76, 8'h00, 8'h00, 6);  // LD B,3; DEC B; JR NZ,-3; HALT
+        repeat(300) @(posedge clk);
+        if (dut.u_regfile.dbg_b !== 8'h00) begin $display("FAIL 3F5c: B=%h (oracle 0x00)", dut.u_regfile.dbg_b); errors=errors+1; end
+        if (errors==0) $display("3F5c: DEC B countdown loop matches oracle (B=0)");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A/3B/3C/3E/3F object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP) matches oracle");
+            $display("PASS: Phase 3A/3B/3C/3E/3F/3F5 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC/DEC) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;

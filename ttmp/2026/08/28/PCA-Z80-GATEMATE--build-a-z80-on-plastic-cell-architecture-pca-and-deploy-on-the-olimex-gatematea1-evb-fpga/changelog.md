@@ -130,3 +130,12 @@ Step 14 / Phase 6: Z80 object graph -> GateMate bitstream. Added GPIO output por
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/top.sv — Phase 6 board-facing top (Z80 core + LED=gpio[0], ROM init via ROM_FILE macro)
 
+
+## 2026-08-28
+
+Step 15 / Phase 3F.5: added INC/DEC r (porting _inc8/_dec8, C preserved). ALU +ALU_INC/ALU_DEC cases (wdata={value,cur_flags}, rdata preserves C). decode +5 states (read r, read flags, ALU op, write r, write flags). zasm +INC/DEC. 3 differential tests PASS (INC B 7F->80 S+PV; DEC A 0->FF N+H+S; DEC B countdown loop B->0). programs/blink.asm now a real blink loop (LD/DEC/JR/LD (nn),A) — GPIO sim observes on=12096 off=7904 over 20000 cycles (LED toggles, driven by Z80). Synth clean. Fixed: cur_f wire, DJNZ-vs-DEC-B test opcode. make test = mesh + object graph (with INC/DEC) + 49 model + 16 assembler + 6 integration.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/programs/blink.asm — Real blinking-LED demo (LD/DEC/JR/LD (nn),A loop drives GPIO bit 0)
+

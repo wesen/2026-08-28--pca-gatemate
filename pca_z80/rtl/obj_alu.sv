@@ -32,9 +32,11 @@ module obj_alu (
     logic [8:0]  sub_res;
     logic [7:0]  r8;
     logic [7:0]  fl;
+    logic [7:0]  cur_f;       // current flags (for INC/DEC C preservation)
     always_comb begin
         a_q = bus_req.wdata[15:8];
         b_q = bus_req.wdata[7:0];
+        cur_f = bus_req.wdata[7:0];   // for INC/DEC: low byte carries current F
         add_res = a_q + b_q;
         sub_res = a_q - b_q;
         fl = 8'h00;
@@ -68,6 +70,22 @@ module obj_alu (
                 r8 = a_q | b_q;
                 fl = (r8 & F_S) | ((r8==0) ? F_Z : 0) | (r8 & (F_F5|F_F3))
                      | (parity(r8) ? F_PV : 0);
+            end
+            z80_obj::ALU_INC: begin
+                // r = a + 1; flags S/Z/H/PV/N (C preserved from cur_f). Matches _inc8.
+                r8 = (a_q + 8'd1) & 8'hFF;
+                fl = (r8 & F_S) | ((r8==0) ? F_Z : 0) | (r8 & (F_F5|F_F3))
+                     | ((a_q & 8'h0F)==8'h0F ? F_H : 0)
+                     | (r8==8'h80 ? F_PV : 0);
+                fl = fl | (cur_f & F_C);   // preserve C
+            end
+            z80_obj::ALU_DEC: begin
+                // r = a - 1; flags S/Z/H/PV/N (C preserved). Matches _dec8.
+                r8 = (a_q - 8'd1) & 8'hFF;
+                fl = F_N | (r8 & F_S) | ((r8==0) ? F_Z : 0) | (r8 & (F_F5|F_F3))
+                     | ((a_q & 8'h0F)==8'h00 ? F_H : 0)
+                     | (r8==8'h7F ? F_PV : 0);
+                fl = fl | (cur_f & F_C);   // preserve C
             end
             default: begin
                 r8 = 8'h00; fl = 8'h00;

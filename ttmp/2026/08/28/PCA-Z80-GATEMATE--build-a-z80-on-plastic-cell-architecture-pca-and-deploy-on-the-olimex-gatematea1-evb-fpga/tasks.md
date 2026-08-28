@@ -58,7 +58,8 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [ ] 3D 16-bit + IX/IY
 - [x] 3E JP/JR/CALL/RET — JP/JR/JR cc done (PASS; synth clean ~4960 cells); CALL/RET done in 3F
 - [x] 3F stack + I/O + faults — CALL/RET/PUSH/POP done (PASS; synth clean ~5450 cells); I/O (IN/OUT) + RET cc/RST pending
-- [ ] 3D 16-bit + IX/IY (ADD HL,rr; INC/DEC rr; LD rr,nn) — reuses new 16-bit pair access
+- [x] 3F.5 INC/DEC r + LD (nn),A (GPIO) — done (PASS; enables blinking-LED demo)
+- [ ] 3F.5b OUT/IN (real port I/O) + RET cc/RST
 - [ ] Exit: each object passes directed tests vs model slices; decode handles all 4 prefix families
 
 ### Phase 4 — Assembler + decoder round-trip

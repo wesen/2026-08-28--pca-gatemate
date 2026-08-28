@@ -1011,6 +1011,74 @@ Phase 6's exit (design doc §13) is "synthesis/PnR/timing clean; hardware bring-
 - `make test`: mesh + object graph + 49 model + 16 assembler + 6 integration tests.
 - Slips: P6 START printed. P6 done slip to follow (synth/PnR/timing done; board load pending).
 
+## Step 15: Build Phase 3 — milestone 3F.5 (INC/DEC r + blinking-LED demo)
+
+This step added INC/DEC r (the most-used Z80 instruction) to the ALU and decode, porting the model's `_inc8`/`_dec8` flag model (which *preserves C*, unlike ADD/SUB). Three differential tests pass against the oracle: INC B (0x7F→0x80, S+PV), DEC A (0→0xFF, N+H+S), and a DEC B countdown loop (B→0). With INC/DEC r, the `programs/blink.asm` demo now *blinks* the LED (LD A,1; LD (0),A; DEC B loop; LD A,0; LD (0),A; DEC B loop; JR start) — verified in sim with both on and off cycles observed, driven entirely by Z80 instructions. This is the stronger Phase 6 acceptance (a blinking LED, not just LED-on), and the core synthesizes clean. The C-preservation subtlety (INC/DEC must not touch C) required the ALU to receive the current flags.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Add INC/DEC r (3F.5) — the high-value instruction that unblocks real counter loops and a blinking-LED demo — differential-tested against the oracle, and strengthen the Phase 6 demo to a real blink.
+
+**Inferred user intent:** A Z80 that can loop and count (INC/DEC), and a blinking LED (not just on) as the Phase 6 hardware acceptance.
+
+**Commit (code/docs):** (this step) Phase 3F.5 INC/DEC r + blink.
+
+### What I did
+- Extended `z80_obj.sv` with ALU_INC/ALU_DEC sub-ops (indices 8/9, beyond the 0-7 ALU_OPS). ALU contract for INC/DEC: wdata={value, cur_flags}, rdata={new_flags, result} where new_flags preserves C from cur_flags.
+- Extended `obj_alu.sv` with ALU_INC/ALU_DEC cases, porting `_inc8`/`_dec8` exactly: S/Z/H/PV (no N for INC, N for DEC), H from `(a&0xF)==0xF` (INC) / `==0x00` (DEC), PV from `r8==0x80` (INC) / `0x7F` (DEC), and `fl | (cur_f & F_C)` to preserve carry. Added a `cur_f` wire = wdata[7:0].
+- Added 5 decode states (S_INCR_READ_R → S_INCR_READ_F → S_INCR_ALU → S_INCR_WRITE_R → S_INCR_WRITE_F) and `is_inc_r`/`is_dec_r` helpers (opcodes 0x04/0x0C/.../0x3C for INC, 0x05/0x0D/.../0x3D for DEC, r=(opc>>3)&7, excluding (HL)=6). The decode reads r, reads flags (for C preservation), issues the ALU op with {value,cur_flags}, writes r, writes flags.
+- Added INC/DEC r to `zasm.py` (1-byte encoding `0x04|(r<<3)` / `0x05|(r<<3)`).
+- Added 3 differential tests to `tb_z80_core.sv`: 3F5a INC B 0x7F→0x80 (S+PV), 3F5b DEC A 0→0xFF (N+H+S), 3F5c DEC B countdown loop (B→0).
+- Rewrote `programs/blink.asm` as a real blink loop (LD A,1; LD (0),A; DEC B loop; LD A,0; LD (0),A; DEC B loop; JR start) — verified with a GPIO testbench that observes both on (12096) and off (7904) cycles over 20000 cycles, not faulted.
+- Confirmed synthesis (0 errors) and the full regression (mesh + object graph with INC/DEC + 49 model + 16 assembler + 6 integration tests).
+
+### Why
+INC/DEC r is the most-used Z80 instruction and the key that unblocks real counter loops (and thus a *blinking* LED, the stronger Phase 6 acceptance). The C-preservation subtlety (INC/DEC must not touch C, unlike ADD/SUB which set it) is exactly the kind of flag-model detail the model-first discipline catches — porting `_inc8`/`_dec8` verbatim and passing the current flags to the ALU made it correct on the first run.
+
+### What worked
+- The ALU-receives-current-flags design (wdata={value,cur_flags}) cleanly handled C preservation: `fl | (cur_f & F_C)` keeps carry while INC/DEC set the other flags. This generalizes to any flag-preserving op (RLD/RRD later).
+- The DEC B countdown loop (B→0 via JR NZ) is the minimal real loop and exercised both DEC (flags) and JR NZ (reads Z) — strong coverage in one test.
+- The blink GPIO testbench (counting on vs off cycles) is a stronger acceptance than LED-on: it proves the LED actually toggles, driven by Z80 code.
+
+### What didn't work
+- **A bad test opcode**: I first wrote the DEC B loop as `06 03 10 FD 76` (0x10 = DJNZ, not DEC B); the loop didn't run (B stayed 3). Fixed to `06 03 05 20 FD 76` (0x05 = DEC B, 0x20 = JR NZ). The differential test caught it immediately.
+- **`cur_f` wire not declared** (the first edit's always_comb block didn't apply); iverilog reported "Unable to bind cur_f" — fixed by adding the declaration.
+
+### What I learned
+- INC/DEC preserving C (while setting S/Z/H/PV/N) is the Z80's flag-model subtlety that distinguishes it from ADD/SUB; the ALU's `{value, cur_flags}` contract handles it in one place.
+- A blinking LED needs only LD, DEC, JR, and LD (nn),A — all in the baseline — so the Phase 6 demo is now a real blink, the textbook acceptance.
+- The DEC-r-then-JR-NZ loop is the universal Z80 countdown idiom; getting it differential-clean against the oracle means the loop primitive is trustworthy for all later programs.
+
+### What was tricky to build
+- The C-preservation path (see What didn't work / What worked). The ALU must see the current flags; passing them in the wdata low byte (reusing the b field) avoids a new bus field.
+- The blink loop timing — the inner DEC B loop (256 iterations) is short for sim; on the 10 MHz board it blinks fast (extend/nest the loop for a human-visible rate, a Phase 7 polish).
+
+### What warrants a second pair of eyes
+- The INC/DEC flag formulas (H from nibble boundary, PV from 0x80/0x7F) — the 3F5a/3F5b tests cover the boundary cases; add an INC 0xFF→0x00 (Z+H) test.
+- The C-preservation across an INC after a carry-setting SUB — add a test (SUB sets C, INC preserves it).
+- The blink rate on hardware — confirm it's visible (may need a longer/nested delay loop; the sim only proves it toggles).
+
+### What should be done in the future
+- 3D: 16-bit ADD HL,rr + INC/DEC rr + LD rr,nn (reuses the 16-bit pair access from 3F; ADD HL needs a 16-bit ALU path).
+- Memory-operand LDs (LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn)) so programs can touch RAM.
+- The DD/FD/CB/ED prefixes (IX/IY, shifts/bits, block).
+- Nest the blink delay loop (or use a 16-bit BC countdown) for a human-visible board blink rate.
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: ... INC/DEC ... matches oracle`.
+- `make test` — expect mesh + object graph (with INC/DEC) + 49 model + 16 assembler + 6 integration.
+- Blink: `python3 tools/zasm.py programs/blink.asm -o build -n blink` then the GPIO testbench observes on+off cycles.
+- Read `obj_alu.sv` ALU_INC/ALU_DEC cases against `z80_model.py` `_inc8`/`_dec8` (C preservation).
+
+### Technical details
+- Files: `rtl/z80_obj.sv` (+ALU_INC/DEC), `rtl/obj_alu.sv` (+INC/DEC cases, +cur_f), `rtl/obj_decode.sv` (+5 INC/DEC states, +helpers), `tools/zasm.py` (+INC/DEC), `sim/tb_z80_core.sv` (+3 tests), `programs/blink.asm` (real blink loop).
+- Oracle: INC 7F→80 (S+PV), DEC 0→FF (N+H+S), DEC B loop → B=0. RTL matches.
+- Blink sim: on=12096, off=7904 over 20000 cycles, not faulted → LED toggles.
+- Synth: 0 errors. `make test` green.
+- Slips: P6 done (Step 14). 3F.5 milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

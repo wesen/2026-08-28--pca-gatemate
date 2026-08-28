@@ -61,6 +61,9 @@ def size_of(op, operands_list):
     operands = split_operands(operands_list)
     o = op.upper()
     if o in ("NOP","HALT","RET","EXX","DI","EI","RLCA","RRCA","RLA","RRA"): return 1
+    if o in ("INC","DEC"):
+        # INC r / DEC r = 1 byte (r in R8); INC rr / INC IX = handled below if not a single reg
+        return 1
     if o == "LD":
         a, b = operands
         if b.startswith("(") or a.startswith("("):
@@ -99,6 +102,13 @@ def encode(op, operands_list, addr, symtab, pass2):
     if o == "RLA":  return [0x17]
     if o == "RRA":  return [0x1F]
     if o == "EXX":  return [0xD9]
+    if o in ("INC","DEC"):
+        r = operands[0].strip().upper()
+        if r in R8:
+            # INC r / DEC r: 0x04|0x08*reg or 0x05..., base (o&0xC7): INC=0x04, DEC=0x05, r=(opc>>3)
+            base = 0x04 if o == "INC" else 0x05
+            return [base | (R8[r] << 3)]
+        raise AsmError("INC/DEC form not supported: %s" % operands)
     if o == "LD":
         a, b = operands
         au, bu = a.strip().upper(), b.strip().upper()
