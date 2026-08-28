@@ -53,6 +53,9 @@ module obj_decode (
         S_LDHLR_READ_HL, S_LDHLR_READ_R, S_LDHLR_MEMWR,
         S_LDABC_READ, S_LDABC_MEMRD, S_LDABC_WRITE_A,
         S_LDANN_LO, S_LDANN_INC1, S_LDANN_HI, S_LDANN_INC2, S_LDANN_MEMRD, S_LDANN_WRITE_A,
+        S_CB_FETCH, S_CB_INC,
+        S_CB_READ_R, S_CB_READ_F, S_CB_ALU, S_CB_WRITE_R, S_CB_WRITE_F,
+        S_CB_BIT_WRITE_F, S_CB_SR_WRITE_R,
         S_HALT, S_FAULT
     } state_e;
     state_e state;
@@ -68,7 +71,7 @@ module obj_decode (
     logic [7:0]  imm_val;
     logic [7:0]  src_val;
     // ALU execute path (3C)
-    logic [3:0]  alu_op;     // ALU_ADD/SUB/AND/XOR/OR/CP
+    logic [4:0]  alu_op;     // ALU op (0-16: ADD..SRL)
     logic [7:0]  alu_a, alu_b, alu_result, alu_flags;
     logic        alu_is_cp;  // CP: don't write A
     // control-flow execute path (3E)
@@ -86,6 +89,7 @@ module obj_decode (
     logic [1:0]  pp;         // push/pop pair index
     logic [15:0] pair_val;   // 16-bit pair read/write value (3D)
     logic [15:0] add16_res;  // 16-bit ADD HL,rr result (3D)
+    logic [7:0]  cb_sub;    // CB-prefixed sub-opcode (3D.6)
 
     assign dbg_ir     = ir;
     assign dbg_pc_val = pc_val;
@@ -169,6 +173,41 @@ module obj_decode (
     endfunction
     function automatic logic is_ld_a_nn_read(input logic [7:0] o);
         is_ld_a_nn_read = (o == 8'h3A);  // LD A,(nn)
+    endfunction
+    function automatic logic is_cb(input logic [7:0] o);
+        is_cb = (o == 8'hCB);  // CB-prefixed shifts/bits
+    endfunction
+    // CB shift op index -> ALU sub-op (10=RLC..16=SRL; SLL=6 -> SLA=14)
+    function automatic logic [4:0] cb_shift_op();
+        logic [2:0] op;
+        op = (cb_sub >> 3) & 8'h07;
+        case (op)
+            3'd0: cb_shift_op = 5'd10;  // RLC
+            3'd1: cb_shift_op = 5'd11;  // RRC
+            3'd2: cb_shift_op = 5'd12;  // RL
+            3'd3: cb_shift_op = 5'd13;  // RR
+            3'd4: cb_shift_op = 5'd14;  // SLA
+            3'd5: cb_shift_op = 5'd15;  // SRA
+            3'd6: cb_shift_op = 5'd14;  // SLL -> SLA (undocumented; baseline approx)
+            3'd7: cb_shift_op = 5'd16;  // SRL
+            default: cb_shift_op = 5'd10;
+        endcase
+    endfunction
+    // CB BIT b,r flags: Z = ~bit, H=1, N=0, PV=Z, S = bit if b==7 (bit 0x80)
+    function automatic logic [7:0] cb_bit_flags();
+        logic bit_v;
+        bit_v = (alu_a >> r_dst) & 8'h01;
+        cb_bit_flags = (bit_v ? 8'h00 : 8'h44)   // Z(0x40) | PV(0x04) if bit==0
+                       | 8'h10                    // H
+                       | (alu_a & 8'h28)          // F5/F3 from operand
+                       | ((r_dst == 3'd7) ? (bit_v ? 8'h80 : 8'h00) : 8'h00);  // S if b==7
+    endfunction
+    // CB RES/SET b,r result: RES clears bit, SET sets bit
+    function automatic logic [7:0] cb_sr_result();
+        logic [2:0] b;
+        b = r_dst[2:0];
+        if (cb_sub >= 8'hC0)  cb_sr_result = alu_a | (8'h01 << b);     // SET
+        else                  cb_sr_result = alu_a & ~(8'h01 << b);    // RES
     endfunction
     // INC r (0x04,0x0C,0x14,0x1C,0x24,0x2C,0x34,0x3C) and DEC r (0x05,0x0D,...)
     // r = (o>>3)&7; 6=(HL) handled later. INC if (o&7) in {4,C}; DEC if in {5,D}.
@@ -257,6 +296,9 @@ module obj_decode (
             ret_addr  <= 16'h0000;
             push_val  <= 16'h0000;
             pop_val   <= 16'h0000;
+            pair_val  <= 16'h0000;
+            add16_res <= 16'h0000;
+            cb_sub   <= 8'h00;
             pp        <= 2'd0;
             bus_req  <= '0;
         end else begin
@@ -388,6 +430,9 @@ module obj_decode (
                     end else if (is_ld_a_nn_read(ir)) begin
                         // LD A,(nn)
                         state <= S_LDANN_LO;
+                    end else if (is_cb(ir)) begin
+                        // CB-prefixed: fetch the sub-opcode next
+                        state <= S_CB_FETCH;
                     end else begin
                         faulted <= 1'b1;
                         state   <= S_FAULT;
@@ -492,7 +537,7 @@ module obj_decode (
                 S_ALU_OP: begin
                     if (!bus_req.req) begin
                         bus_req.req <= 1'b1; bus_req.we <= 1'b1;
-                        bus_req.obj <= z80_obj::OBJ_ALU; bus_req.addr <= {12'h000, alu_op};
+                        bus_req.obj <= z80_obj::OBJ_ALU; bus_req.addr <= {11'h000, alu_op};
                         bus_req.wdata <= {alu_a, alu_b};
                     end else if (bus_resp.ack) begin
                         alu_result <= bus_resp.rdata[7:0];
@@ -953,7 +998,7 @@ module obj_decode (
                 S_INCR_ALU: begin
                     if (!bus_req.req) begin
                         bus_req.req <= 1'b1; bus_req.we <= 1'b1;
-                        bus_req.obj <= z80_obj::OBJ_ALU; bus_req.addr <= {12'h000, alu_op};
+                        bus_req.obj <= z80_obj::OBJ_ALU; bus_req.addr <= {11'h000, alu_op};
                         bus_req.wdata <= {alu_a, alu_b};  // {value, cur_flags}
                     end else if (bus_resp.ack) begin
                         alu_result <= bus_resp.rdata[7:0];
@@ -1305,6 +1350,122 @@ module obj_decode (
                     if (!bus_req.req) begin
                         bus_req.req <= 1'b1; bus_req.we <= 1'b1;
                         bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= 16'h0007; bus_req.wdata <= {8'h00, alu_result};
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ===================== 3D.6: CB-prefixed shifts/bits =====================
+                // ---- fetch the CB sub-opcode, inc PC, dispatch ----
+                S_CB_FETCH: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        cb_sub     <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_CB_INC;
+                    end
+                end
+                S_CB_INC: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        // dispatch on the sub-opcode (in cb_sub)
+                        r_src <= cb_sub & 8'h07;          // r = sub & 7 (6=(HL) deferred)
+                        if (cb_sub < 8'h40) begin
+                            // shift: op = (cb_sub>>3)&7 -> ALU_RLC..ALU_SRL (skip 6=SLL->SLA)
+                            alu_op <= cb_shift_op();  // 10..16 (ALU_RLC..ALU_SRL)
+                            if ((cb_sub & 8'h07) == 8'h06) state <= S_FAULT; else state <= S_CB_READ_R;
+                        end else if (cb_sub < 8'h80) begin
+                            // BIT b,r: b = (cb_sub>>3)&7
+                            r_dst <= (cb_sub >> 3) & 8'h07;   // reuse r_dst for bit number
+                            if ((cb_sub & 8'h07) == 8'h06) state <= S_FAULT; else state <= S_CB_READ_R;
+                        end else begin
+                            // RES/SET b,r: b = (cb_sub>>3)&7
+                            r_dst <= (cb_sub >> 3) & 8'h07;
+                            if ((cb_sub & 8'h07) == 8'h06) state <= S_FAULT; else state <= S_CB_READ_R;
+                        end
+                    end
+                end
+                // ---- read the target register ----
+                S_CB_READ_R: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, r_src}; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        alu_a     <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        if (cb_sub < 8'h40) state <= S_CB_READ_F;       // shift: need flags for RL/RR
+                        else if (cb_sub < 8'h80) state <= S_CB_BIT_WRITE_F;  // BIT: compute + write flags
+                        else state <= S_CB_SR_WRITE_R;                    // RES/SET: modify + write r
+                    end
+                end
+                // ---- shift: read flags (for RL/RR carry-in), ALU op, write r + flags ----
+                S_CB_READ_F: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        alu_b     <= bus_resp.rdata[7:0];  // cur flags (carry-in for RL/RR)
+                        bus_req.req <= 1'b0;
+                        state       <= S_CB_ALU;
+                    end
+                end
+                S_CB_ALU: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_ALU; bus_req.addr <= {11'h000, alu_op};
+                        bus_req.wdata <= {alu_a, alu_b};
+                    end else if (bus_resp.ack) begin
+                        alu_result <= bus_resp.rdata[7:0];
+                        alu_flags  <= bus_resp.rdata[15:8];
+                        bus_req.req <= 1'b0;
+                        state       <= S_CB_WRITE_R;
+                    end
+                end
+                S_CB_WRITE_R: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, r_src}; bus_req.wdata <= {8'h00, alu_result};
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_CB_WRITE_F;
+                    end
+                end
+                S_CB_WRITE_F: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_WRITE; bus_req.wdata <= {8'h00, alu_flags};
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- BIT b,r: compute Z (bit=0), H=1, N=0, PV=Z, S from bit7 if b==7; write flags ----
+                S_CB_BIT_WRITE_F: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        // bit = (alu_a >> r_dst) & 1; Z = ~bit; H=1; N=0; PV=Z; S = bit if r_dst==7
+                        bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_WRITE;
+                        bus_req.wdata <= {8'h00, cb_bit_flags()};
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- RES/SET b,r: modify bit, write r (no flags) ----
+                S_CB_SR_WRITE_R: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, r_src};
+                        bus_req.wdata <= {8'h00, cb_sr_result()};
                     end else if (bus_resp.ack) begin
                         count       <= count + 32'd1;
                         bus_req.req <= 1'b0;

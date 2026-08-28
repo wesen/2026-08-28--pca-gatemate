@@ -1214,6 +1214,73 @@ This step added the memory-operand LDs (LD r,(HL), LD (HL),r, LD A,(BC), LD A,(D
 - Memory map: addr<256 → ROM (read), ≥256 → RAM (read); writes → RAM except addr 0 → GPIO.
 - Slips: 3D done (Step 16). 3D.5 milestone slip to follow.
 
+## Step 18: Build Phase 3 — milestone 3D.6 (CB-prefixed shifts/bits: RLC/RRC/RL/RR/SLA/SRA/SRL + BIT/SET/RES)
+
+This step added the CB-prefixed instructions (the 0xCB prefix) — 7 rotates/shifts (RLC/RRC/RL/RR/SLA/SRA/SRL; SLL→SLA undocumented) and BIT/SET/RES b,r — to the decode, ALU, and assembler. Five differential tests pass against the oracle: RLC A (0x81→0x03, C), SRL A (0x0F→0x07, C), BIT 4,A (Z set), SET 0,A (0→0x01), RES 0,A (0xFF→0xFE). The shift flag model (H=0, N=0, PV=parity, C=shifted-out bit, S/Z + F5/F3 from result) was ported from the model's `_rlc`/`_srl`/etc. to 7 new ALU sub-ops (ALU_RLC..ALU_SRL, indices 10-16, widening alu_op to 5 bits). BIT computes flags without a reg write; SET/RES modify a bit without flags. The assembler gained CB mnemonics with a ~64-sub-test golden-vector sweep (8 shifts × 7 regs + 8×3 BIT/SET/RES × 7 regs). Synth clean; full regression green (49 model + 19 assembler + 6 integration). This is the last major ISA piece; the DD/FD (IX/IY) and ED (block) prefixes remain as the largest gap to a full Z80.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Add 3D.6 — the CB-prefixed shifts/bits (RLC/RRC/RL/RR/SLA/SRA/SRL + BIT/SET/RES), the self-contained prefix family the model already implements, differential-tested against the oracle, with assembler golden vectors.
+
+**Inferred user intent:** Extend the Z80 ISA with the CB bit-manipulation ops (shifts, bit test/set/reset) — the common low-level primitives — completing the non-prefixed + CB portions of the ISA.
+
+**Commit (code/docs):** (this step) Phase 3D.6 CB shifts/bits.
+
+### What I did
+- Added ALU shift sub-ops (ALU_RLC=10 … ALU_SRL=16) to z80_obj, and ported the shift flag model to obj_alu (7 cases): H=0, N=0, PV=parity, C=shifted-out bit, S/Z/F5/F3 from result, with RL/RR taking carry-in from cur_f. Widened the decode's alu_op register 4→5 bits (ALU_SRL=16 doesn't fit in 4).
+- Added CB decode states: S_CB_FETCH (fetch sub-op, inc PC) → S_CB_INC (dispatch: shift/BIT/SET-RES, r=6→FAULT) → S_CB_READ_R → (S_CB_READ_F→S_CB_ALU→S_CB_WRITE_R→S_CB_WRITE_F for shifts | S_CB_BIT_WRITE_F for BIT | S_CB_SR_WRITE_R for SET/RES).
+- Added helper functions: `cb_shift_op` (op index → ALU sub-op, SLL→SLA), `cb_bit_flags` (Z=~bit, H=1, PV=Z, S from bit7 if b==7, F5/F3 from operand), `cb_sr_result` (RES clears bit, SET sets bit).
+- Added CB to zasm.py (size_of returns 2; encode emits 0xCB + sub-op for shifts and BIT/SET/RES b,r) with the R8N r-table.
+- Added 5 differential tests (RLC A 0x81→0x03 C; SRL A 0x0F→0x07 C; BIT 4,A Z; SET 0,A 0→0x01; RES 0,A 0xFF→0xFE) and a ~64-sub-test CB golden-vector sweep to test_assembler.py (now 19 tests).
+- Confirmed synthesis (0 errors) and the full regression.
+
+### Why
+The CB prefix is the self-contained bit-manipulation family (shifts + bit test/set/reset) that the model already implements — adding it extends the ISA meaningfully without the cross-instruction complexity of DD/FD (which substitute IX/IY across many ops). It's the last major ISA piece before the IX/IY (DD/FD) and block (ED) prefixes. The shift flag model (PV=parity not overflow, H=0) is distinct from the arithmetic ALU and was ported verbatim from the model.
+
+### What worked
+- Reusing the INC/DEC pattern (read r, read F, ALU, write r, write F) for shifts made the 5-state path mechanical; only the BIT (flags-only) and SET/RES (reg-only, no flags) branches differed.
+- The ~64-sub-test golden-vector sweep (8 shifts × 7 regs + 8×3 bits × 7 regs) verified the assembler's CB encoding exhaustively for the non-(HL) forms in one test.
+- The shift flag model ported cleanly; RLC A 0x81→0x03 with C set matched on the first run.
+
+### What didn't work
+- **alu_op 4 bits overflowed** (ALU_SRL=16) — widened to 5 bits and fixed the ALU addr concat (`{11'h000, alu_op}` not `{12'h000,...}` → 17 bits).
+- **Enum ternary explicit-cast** (3× in the CB dispatch) — rewrote with if/else (the locked iverilog rule).
+- **BIT/RES/SET operand split** — `split_operands` already splits "4,A" → ["4","A"], so my `operands[0].split(",")` over-split and indexed out of range; fixed to use operands[0]/operands[1] directly.
+
+### What I learned
+- The CB sub-opcode packs three families in one byte: shifts (0x00-0x3F, op=(b>>3)&7), BIT (0x40-0x7F, b=(b>>3)&7), RES (0x80-0xBF), SET (0xC0-0xFF), all with r=b&7 — one decode dispatch covers all three.
+- The shift flag model (PV=parity, H=0, C=shifted-out) is uniform across all 7 shifts; only the bit movement differs (rotate vs shift vs arithmetic). Porting the model's 7 helpers to 7 ALU cases was verbatim.
+- BIT sets flags without a reg write; SET/RES modify a bit without flags — two distinct no-write-pair paths that reused the read-r + write-r or read-r + write-F halves of the shift path.
+
+### What was tricky to build
+- The alu_op width (5 bits for 16) and the resulting ALU addr concat width — a 17-bit concat silently truncates; fixed to 11+5=16.
+- The BIT flag model (S from bit7 only if b==7, PV=Z, F5/F3 from the operand not the result) — ported from the model's `_bit`; the 3D6c test (BIT 4,A=4 → Z) covers the common case.
+
+### What warrants a second pair of eyes
+- The SLL→SLA approximation (undocumented SLL is SLA+1 on real Z80; baseline uses SLA) — document as a baseline limitation.
+- The (HL) CB forms (RLC (HL), BIT b,(HL), etc.) — deferred (r=6→FAULT); add when (HL) memory-operand CB is needed (compose H:L → MEM read/modify/write).
+- The BIT flag F5/F3 (`alu_a & 0x28` from the operand) — the model does this; confirm against a Z80 flag reference for a few values.
+
+### What should be done in the future
+- The DD/FD (IX/IY) and ED (block) prefixes — the largest remaining ISA add; the model implements them (Phase 2), so the work is the decode prefix machinery (a prefix-accumulator state) + assembler prefixes. This is the main gap to "a full Z80."
+- 3F.5b: real OUT/IN port I/O (separate I/O space) + RET cc/RST.
+- The full PCA mesh integration (placer) + engineering report.
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: ... CB-shifts-bits ... matches oracle`.
+- `make test` — expect mesh + object graph (with CB) + 49 model + 19 assembler + 6 integration.
+- `python3 -c "from zasm import assemble; print(bytes(assemble('RLC A')[0]).hex())"` → `cb07`.
+- Read `obj_alu.sv`'s ALU_RLC..ALU_SRL cases against `z80_model.py`'s `_rlc`/`_srl`/etc.
+
+### Technical details
+- Files: `rtl/z80_obj.sv` (+ALU_RLC..ALU_SRL), `rtl/obj_alu.sv` (+7 shift cases), `rtl/obj_decode.sv` (+CB states, alu_op 5 bits, +helpers), `tools/zasm.py` (+CB), `sim/tb_z80_core.sv` (+5 tests), `sim/test_assembler.py` (+CB sweep → 19).
+- Oracle: RLC A 0x81→0x03 C; SRL A 0x0F→0x07 C; BIT 4,A→Z; SET 0,A→0x01; RES 0,A 0xFF→0xFE. RTL matches.
+- Synth: 0 errors. `make test` green (mesh + object graph + 49 model + 19 asm + 6 integ).
+- alu_op widened to 5 bits (ALU_SRL=16).
+- Slips: 3D.5 done (Step 17). 3D.6 milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

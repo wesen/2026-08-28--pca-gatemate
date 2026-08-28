@@ -157,3 +157,12 @@ Step 17 / Phase 3D.5: added memory-operand LDs (LD r,(HL)/(HL),r/LD A,(BC)/(DE)/
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/zasm.py — Two-pass assembler (now with memory-operand LDs, INC/DEC, ADD HL, 18 golden vectors)
 
+
+## 2026-08-28
+
+Step 18 / Phase 3D.6: added CB-prefixed shifts/bits (RLC/RRC/RL/RR/SLA/SRA/SRL + BIT/SET/RES). ALU +7 shift sub-ops (ALU_RLC..SRL, idx 10-16) porting model shift flag model (H=0/N=0/PV=parity/C=shifted-out). decode +CB states (fetch sub-op, dispatch shift/BIT/SET-RES, r=6->FAULT) + helpers cb_shift_op/cb_bit_flags/cb_sr_result. alu_op widened to 5 bits. zasm +CB mnemonics. 5 diff tests PASS (RLC 0x81->0x03 C; SRL 0x0F->0x07 C; BIT 4,A Z; SET/RES). ~64-sub-test CB golden sweep (19 assembler tests). Synth clean. make test = mesh + object graph (CB) + 49 model + 19 asm + 6 integ. DD/FD + ED prefixes remain as the largest ISA gap.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_alu.sv — Z80 ALU (8-bit ALU + INC/DEC + CB shifts, flag model ported from z80_model.py)
+

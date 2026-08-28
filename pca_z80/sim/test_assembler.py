@@ -89,6 +89,24 @@ def test_inc_dec():
     assert asm_bytes("DEC HL") == bytes([0x2B])
     assert asm_bytes("ADD HL,BC") == bytes([0x09])
 
+def test_cb():
+    CB_SHIFT = ["RLC","RRC","RL","RR","SLA","SRA","SLL","SRL"]
+    R8N = ["B","C","D","E","H","L","(HL)","A"]
+    for op_i, mn in enumerate(CB_SHIFT):
+        for r_i, r in enumerate(R8N):
+            if r == "(HL)":
+                continue  # baseline defers (HL) CB ops
+            b = 0x00 | (op_i << 3) | r_i
+            assert asm_bytes(mn + " " + r) == bytes([0xCB, b]), (mn, r, asm_bytes(mn + " " + r).hex())
+    # BIT/SET/RES b,r
+    for b in range(8):
+        for r_i, r in enumerate(R8N):
+            if r == "(HL)":
+                continue
+            assert asm_bytes("BIT %d,%s" % (b, r)) == bytes([0xCB, 0x40 | (b << 3) | r_i])
+            assert asm_bytes("RES %d,%s" % (b, r)) == bytes([0xCB, 0x80 | (b << 3) | r_i])
+            assert asm_bytes("SET %d,%s" % (b, r)) == bytes([0xCB, 0xC0 | (b << 3) | r_i])
+
 # ---- cross-check: assemble -> model run -> state matches ----
 def test_cross_check_alu_loop():
     prog = """

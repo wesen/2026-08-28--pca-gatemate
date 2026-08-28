@@ -68,6 +68,16 @@ package z80_obj;
   // rdata = {new_flags[7:0], result[7:0]} (C preserved from cur_flags).
   localparam logic [15:0] ALU_INC  = 16'h0008;
   localparam logic [15:0] ALU_DEC  = 16'h0009;
+  // CB-prefixed shifts (3D.6): wdata = {a[7:0], 8'h00}; rdata = {flags, result}.
+  // H=0, N=0, PV=parity, C=bit shifted out, S/Z from result.
+  localparam logic [15:0] ALU_RLC = 16'h000A;
+  localparam logic [15:0] ALU_RRC = 16'h000B;
+  localparam logic [15:0] ALU_RL  = 16'h000C;
+  localparam logic [15:0] ALU_RR  = 16'h000D;
+  localparam logic [15:0] ALU_SLA = 16'h000E;
+  localparam logic [15:0] ALU_SRA = 16'h000F;
+  localparam logic [15:0] ALU_SRL = 16'h0010;
+  // CB BIT/SET/RES sub-ops (no ALU; handled in decode): bit b of r.
 
   // Flags object sub-ops (addr field when obj==OBJ_FLAGS).
   localparam logic [15:0] FLAGS_READ  = 16'h0000;  // read  -> rdata[7:0] = F

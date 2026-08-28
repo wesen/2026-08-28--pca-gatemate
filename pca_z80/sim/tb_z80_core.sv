@@ -230,9 +230,43 @@ module tb_z80_core;
         if (dut.u_regfile.dbg_a !== 8'h88) begin $display("FAIL 3D5c: A=%h (oracle 0x88)", dut.u_regfile.dbg_a); errors=errors+1; end
         if (errors==0) $display("3D5c: LD A,(nn) matches oracle (A=0x88)");
 
+        // ---- 3D.6: CB shifts (RLC A 0x81->0x03 C; SRL A 0x0F->0x07 C) ----
+        errors = 0;
+        run_prog(8'h3E, 8'h81, 8'hCB, 8'h07, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0x81; RLC A; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h03) begin $display("FAIL 3D6a: A=%h (oracle 0x03)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h01) === 8'h00) begin $display("FAIL 3D6a: C not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3D6a: RLC A (0x81->0x03) matches oracle (C)");
+
+        errors = 0;
+        run_prog(8'h3E, 8'h0F, 8'hCB, 8'h3F, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0x0F; SRL A; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h07) begin $display("FAIL 3D6b: A=%h (oracle 0x07)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h01) === 8'h00) begin $display("FAIL 3D6b: C not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3D6b: SRL A (0x0F->0x07) matches oracle (C)");
+
+        // ---- 3D.6: BIT 4,A (A=4 -> Z set); SET 0,A (A=0 -> 0x01); RES 0,A (A=0xFF -> 0xFE) ----
+        errors = 0;
+        run_prog(8'h3E, 8'h04, 8'hCB, 8'h60, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,4; BIT 4,A; HALT
+        repeat(200) @(posedge clk);
+        if ((dut.u_flags.dbg_f & 8'h40) === 8'h00) begin $display("FAIL 3D6c: Z not set (BIT 4,A=4)", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3D6c: BIT 4,A (A=4) matches oracle (Z set)");
+
+        errors = 0;
+        run_prog(8'h3E, 8'h00, 8'hCB, 8'hC7, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0; SET 0,A; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h01) begin $display("FAIL 3D6d: A=%h (oracle 0x01)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3D6d: SET 0,A (0->0x01) matches oracle");
+
+        errors = 0;
+        run_prog(8'h3E, 8'hFF, 8'hCB, 8'h87, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD A,0xFF; RES 0,A; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'hFE) begin $display("FAIL 3D6e: A=%h (oracle 0xFE)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3D6e: RES 0,A (0xFF->0xFE) matches oracle");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A-3F/3F5/3D/3D5 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC/16-bit/mem-LD) matches oracle");
+            $display("PASS: Phase 3A-3F/3F5/3D/3D5/3D6 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC/16-bit/mem-LD/CB-shifts-bits) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;

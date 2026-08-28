@@ -87,6 +87,43 @@ module obj_alu (
                      | (r8==8'h7F ? F_PV : 0);
                 fl = fl | (cur_f & F_C);   // preserve C
             end
+            // CB shifts (3D.6): port _rlc/_rrc/_rl/_rr/_sla/_sra/_srl.
+            // H=0, N=0, PV=parity, C=shifted-out bit, S/Z + F5/F3 from result.
+            z80_obj::ALU_RLC: begin
+                r8 = ((a_q << 1) | (a_q >> 7)) & 8'hFF;   // C = old bit 7
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | ((a_q >> 7) & 1 ? F_C : 0);
+            end
+            z80_obj::ALU_RRC: begin
+                r8 = ((a_q >> 1) | (a_q << 7)) & 8'hFF;   // C = old bit 0
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | (a_q & 1 ? F_C : 0);
+            end
+            z80_obj::ALU_RL: begin
+                r8 = ((a_q << 1) | (cur_f & F_C ? 1 : 0)) & 8'hFF;   // C = old bit 7
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | ((a_q >> 7) & 1 ? F_C : 0);
+            end
+            z80_obj::ALU_RR: begin
+                r8 = ((a_q >> 1) | (cur_f & F_C ? 8'h80 : 0)) & 8'hFF;  // C = old bit 0
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | (a_q & 1 ? F_C : 0);
+            end
+            z80_obj::ALU_SLA: begin
+                r8 = (a_q << 1) & 8'hFF;   // C = old bit 7
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | ((a_q >> 7) & 1 ? F_C : 0);
+            end
+            z80_obj::ALU_SRA: begin
+                r8 = ((a_q >> 1) | (a_q & 8'h80)) & 8'hFF;  // C = old bit 0
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | (a_q & 1 ? F_C : 0);
+            end
+            z80_obj::ALU_SRL: begin
+                r8 = (a_q >> 1) & 8'hFF;   // C = old bit 0
+                fl = (r8 & F_S) | ((r8==0)?F_Z:0) | (r8 & (F_F5|F_F3))
+                     | (parity(r8) ? F_PV : 0) | (a_q & 1 ? F_C : 0);
+            end
             default: begin
                 r8 = 8'h00; fl = 8'h00;
             end

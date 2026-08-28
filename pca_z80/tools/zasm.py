@@ -61,6 +61,8 @@ def size_of(op, operands_list):
     operands = split_operands(operands_list)
     o = op.upper()
     if o in ("NOP","HALT","RET","EXX","DI","EI","RLCA","RRCA","RLA","RRA"): return 1
+    CB_SHIFT = {"RLC","RRC","RL","RR","SLA","SRA","SLL","SRL"}
+    if o in CB_SHIFT or o in ("BIT","RES","SET"): return 2   # 0xCB + sub-op
     if o in ("INC","DEC"):
         # INC r / DEC r = 1 byte (r in R8); INC rr / INC IX = handled below if not a single reg
         return 1
@@ -107,6 +109,21 @@ def encode(op, operands_list, addr, symtab, pass2):
     if o == "RLA":  return [0x17]
     if o == "RRA":  return [0x1F]
     if o == "EXX":  return [0xD9]
+    CB_SHIFT = {"RLC":0,"RRC":1,"RL":2,"RR":3,"SLA":4,"SRA":5,"SLL":6,"SRL":7}
+    R8N = ["B","C","D","E","H","L","(HL)","A"]
+    if o in CB_SHIFT:
+        r = operands[0].strip().upper()
+        if r in R8N:
+            return [0xCB, (CB_SHIFT[o] << 3) | R8N.index(r)]
+        raise AsmError("CB shift form not supported: %s" % operands)
+    if o in ("BIT","RES","SET"):
+        # operands already split on comma by split_operands: ["4", "A"]
+        b = int(operands[0].strip()) & 7
+        r = operands[1].strip().upper()
+        if r in R8N:
+            base = {"BIT":0x40, "RES":0x80, "SET":0xC0}[o]
+            return [0xCB, base | (b << 3) | R8N.index(r)]
+        raise AsmError("BIT/RES/SET form not supported: %s" % operands)
     if o in ("INC","DEC"):
         r = operands[0].strip().upper()
         if r in R8:
