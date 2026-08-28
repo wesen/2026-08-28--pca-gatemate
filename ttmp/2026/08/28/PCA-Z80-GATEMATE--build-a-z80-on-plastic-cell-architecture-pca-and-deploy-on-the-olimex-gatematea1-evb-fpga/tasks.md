@@ -39,11 +39,11 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] Exit: a packet routes A->B with a single ack; anti-double holds (T1/T2/T3 PASS); 3×3 mesh synthesizes clean
 
 ### Phase 2 — Z80 reference model (the oracle)
-- [x] No RTL yet (Phase-2 invariant from MATE-16)  *(enforced)*
-- [ ] `pca_z80/tools/z80_isa.py` — single ISA contract (DR-3)
-- [ ] `pca_z80/tools/z80_model.py` — all baseline opcodes, flags, prefixes (§10.1)
-- [ ] `sim/test_model.py` — ~400 unit tests with hand-computed state
-- [ ] Exit: model passes the unit suite; no RTL written
+- [x] No object RTL yet (Phase-2 model-first invariant)  *(enforced; no obj_*.sv written)*
+- [x] `pca_z80/tools/z80_isa.py` — single ISA contract (DR-3)  *(done)*
+- [x] `pca_z80/tools/z80_model.py` — all baseline opcodes, flags, prefixes (§10.1)  *(done; ~600 lines)*
+- [x] `sim/test_model.py` — 49 unit tests with hand-computed state  *(done; 49 passed)*
+- [x] Exit: model passes the unit suite; no object RTL written  *(49 passed in 0.11s)*
 
 ### Phase 3 — Object RTL, milestone per object (§6.4)
 - [ ] `obj_pc.sv` — PC + R refresh counter

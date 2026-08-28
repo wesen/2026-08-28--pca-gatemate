@@ -49,3 +49,12 @@ Step 5 / Phase 1: built the PCA routing substrate. pca_types.sv (msg_t/dir_e/cmd
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/pca_router.sv — 5-port XY router, held-request handshake, anti-double
 
+
+## 2026-08-28
+
+Step 6 / Phase 2: built the Z80 reference model (oracle). z80_isa.py (single ISA contract: flag bits, r/rp/cc tables, IMPLEMENTED baseline subset), z80_model.py (~600 lines: full arch state, 8-bit ALU with correct S/Z/H/PV/N/C flags, loads, 16-bit, control, stack, exchange, rotates, CB, ED, DD/FD/CB/ED prefixes, precise bus-fault), test_model.py (49 hand-computed tests, all pass). Fixed: 3-bit register fields (not 4-bit hi/lo), CP flag store, DD/FD 16-bit IX/IY substitution, _step_indexed IX clobber. make test now runs mesh sim + 49 model tests (full software pyramid, <0.2s). Model-first invariant held: no obj_*.sv RTL written. Printed P2 START slip.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/z80_model.py — Z80 executable reference model (the differential oracle for Phase 3)
+

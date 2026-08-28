@@ -385,6 +385,76 @@ Phase 1's exit criterion (design doc §13) is "a packet routes A→B with a sing
 - Portable subset locked: packed 1D + `+:` + `pca_types::` for types/params + bare enum constants.
 - Slips printed: P1 START (plan). P1 DONE to follow.
 
+## Step 6: Build Phase 2 — the Z80 reference model (the oracle)
+
+This step built the executable Z80 oracle in pure Python — `z80_isa.py` (the single ISA contract) and `z80_model.py` (an instruction-accurate model with the full flag model and the DD/FD/CB/ED prefix machinery) — plus a 49-test pytest suite with hand-computed expectations. The model is the differential oracle Phase 3 object RTL will be tested against, and it is written BEFORE any Z80 object RTL (the model-first invariant from the design doc and the sibling MATE-16 project). The work was almost entirely flag/encoding correctness: the Z80 packs register fields into 3-bit slices that my first cut mis-extracted as 4-bit `hi`/`lo`, and the DD/FD prefixes must substitute IX/IY for HL across the 16-bit ops, not just the (HL) memory operand. Debugging the model against its own tests (not against RTL) caught all of these cheaply.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Implement Phase 2 — the Z80 ISA contract and the executable reference model with a unit suite — committing and diary-keeping, with the model-first invariant (no object RTL yet), then print the Phase 2 done slip.
+
+**Inferred user intent:** A credible, tested Z80 oracle so Phase 3 objects can be differential-tested against an independent implementation rather than against hardware.
+
+**Commit (code/docs):** (this step) Phase 2 oracle.
+
+### What I did
+- Printed the **P2 START** slip (plan mode: isa table / model registers+flags / 8-bit ALU+flags / loads+control+stack / prefixes / pytest).
+- Wrote `tools/z80_isa.py`: flag-bit constants, the 8-bit `R8` r-table, `RP_ADD`/`RP_PUSH`/`CC`/`RST` tables, the prefix bytes, `CB_SHIFT`/`ALU_OPS`, and an explicit `IMPLEMENTED` set (the authoritative baseline subset) plus `CB_IMPLEMENTED`/`ED_IMPLEMENTED`. This is the single source of truth the assembler/decoder/model/tests all read (the `opcodes.py` analogue).
+- Wrote `tools/z80_model.py` (~600 lines): the `Z80` class with full architectural state (A/F/BC/DE/HL + primed set, IX/IY/SP/PC/I/R, IFF1/IFF2/IM, halted/faulted/fault_code/fault_pc, instruction_count), a 64K memory, a bus-fault injection hook (`fault_at`), and a `step()`/`run()` loop. Implemented: 8-bit loads (r/r'/n/(HL)/(BC)/(DE)/(nn)/(IX+d)), the full 8-bit ALU (ADD/ADC/SUB/SBC/AND/OR/XOR/CP) with correct S/Z/H/PV/N/C flags, INC/DEC, 16-bit ADD HL/IX/IY + INC/DEC rr, control (JP/JR/JR cc/DJNZ/CALL/RET/RET cc/RST), stack (PUSH/POP), exchange (EX DE,HL/EX AF/EXX/EX (SP),HL), the four A rotates (RLCA/RRCA/RLA/RRA), the CB rotates/shifts + BIT/SET/RES, the ED subset (LDI/LDD/LD (nn),rr/LD rr,(nn)/NEG/CPL), DI/EI/LD SP,HL, and the DD/FD/CB/ED prefix dispatch.
+- Wrote `sim/test_model.py`: 49 hand-computed tests — ALU flags (no-carry/half-carry/carry-out/overflow/borrow/zero, ADC/SBC carry-in, AND/OR/XOR, CP), INC/DEC (incl. carry preservation), loads (r/n, r/r', (HL), rr,nn, (nn)), 16-bit ADD HL (H/C), INC/DEC rr, control (JP, JR taken/not-taken, DJNZ loop, CALL/RET, CALL cc not-taken), stack PUSH/POP, exchange (EX DE,HL/EXX/EX AF), rotates (RLCA/RRCA/RLA), CB (RLC/BIT/RES/SET), DD/FD (LD IX,nn/LD A,(IX+d)/INC IX/ADD IX/IY), ED (NEG/LDI/LD (nn),BC), and precise bus-fault + illegal-opcode faults.
+- Iterated the model and tests together (see What didn't work) until all 49 passed.
+- Wired `make test` to run both the substrate sim (`sim_mesh`) and the model pytest (`test_model`); confirmed the Phase 0 top sim still passes (regression).
+
+### Why
+Phase 2's exit criterion (design doc §13) is "model passes the unit suite; no RTL written yet." The model-first discipline (MATE-16 DR-4) makes Phase 3 object RTL debuggable against an independent oracle: a flag-bit error in the RTL shows up as a divergence from `z80_model.py`, not as a mysterious hardware failure. Building the model first also forced me to nail the flag model and prefix machinery in Python, where debugging is cheap, before committing them to SystemVerilog.
+
+### What worked
+- Hand-computed flag tests (half-carry from bit 3, signed overflow PV, carry-preservation across INC) caught the subtle bugs; writing the expected flags down first made wrong model output obvious.
+- The explicit `IMPLEMENTED` set in `z80_isa.py` keeps the baseline bounded and makes "illegal opcode → fault" a single check.
+- `make test` now runs the whole software pyramid (mesh sim + 49 model tests) in <0.2 s, toolchain-independent.
+
+### What didn't work
+- **`lo`/`hi` are 4-bit; register fields are 3-bit.** First cut used `dst=hi`, `src=lo`, `op=ALU_OPS[hi]` — wrong for LD r,r' (0x47 → B,A became B,H), out-of-range for ALU_OPS (0x88 → index 8), and caused `IndexError` on `rget(14)`. Fixed to `dst=(opc>>3)&7`, `src=opc&7`, `op=ALU_OPS[(opc>>3)&7]`, and the `lo∈{6,E}` / `lo∈{4,C}` / `lo∈{5,D}` patterns for LD r,n / ALU A,n / INC/DEC r.
+- **`CP` did not store flags** — `_alu`'s CP branch called `_sub8` but discarded the returned F. Fixed to `_, self.F = self._sub8(...)`.
+- **DD/FD did not substitute IX/IY for the 16-bit HL ops** (LD HL,nn, INC/DEC HL, LD (nn),HL, LD HL,(nn)) — only the (HL)→(IX+d) and r,r' cases were handled, so `LD IX,nn` silently set HL. Fixed the 16-bit branches to target `idx` (and write `self.IX/IY`) when `hi==2 and idx is not None`.
+- **`_step_indexed` clobbered `self.IX`** after `_exec_main` had already written it (`self.IX = idx` with the stale local copy), undoing `LD IX,nn`/`ADD IX`/`INC IX`. Fixed by removing the post-assignment (`_exec_main` writes `self.IX/IY` directly for every index-changing op).
+- **Test-program errors, not model errors:** `JP 0x05` landed on an operand byte (should be 0x04); `EXX` is 0xD9 not 0xEB; `RLA` is 0x17 not 0x37; the bus-fault test ran the program before setting the fault; `EX DE,HL` byte-order expectations were swapped; `0xFF+0x01` does not set PV (−1+1=0 fits). Fixed all the tests; several also exposed the real model bugs above.
+- **`0x0F+0x01` DOES set half-carry** — my `test_add_no_carry` used it; changed to `0x10+0x01`.
+
+### What I learned
+- The Z80's register encoding is uniformly 3-bit (`(opc>>3)&7` for the destination/high field, `opc&7` for the source/low field), and the "immediate"/"INC/DEC" families reuse the same r-table with `lo∈{6,E}`/`{4,C}`/`{5,D}`. Internalizing that one rule fixed a whole cluster of bugs.
+- DD/FD is not just "(HL)→(IX+d)": every 16-bit HL operation (LD HL,nn; INC/DEC HL; ADD HL,rr; LD (nn),HL; LD HL,(nn); LD SP,HL; EX (SP),HL; JP (HL)) must redirect to IX/IY. Getting this right in the model now means the Phase 3 decoder object's prefix handling has a spec to match.
+- Debugging the model against hand-written tests (not against RTL) found every bug in minutes — exactly the model-first payoff.
+
+### What was tricky to build
+- The flag model, especially PV (parity/overflow): PV is parity for logic ops and signed-overflow for arithmetic, with the standard overflow formula `(a^r8)&(b^r8)&0x80` for add and `(a^b)&(a^r8)&0x80` for sub. Symptom: `test_add_carry_out` (0xFF+0x01) first expected PV set; tracing showed −1+1=0 fits, so PV stays clear. Resolution: corrected the test and verified the overflow formula against the 0x7F+0x01 case (which does overflow).
+- The DD/FD + indexed LD r,r' interaction (H/L become IXH/IXL, (HL) becomes (IX+d)), with the index register written back once per instruction. Symptom: `LD A,(IX+d)` worked but `LD IXH,n`-style paths were inconsistent. Resolution: handled the indexed branch explicitly (src==6 → read (IX+d); src==4/5 → IXH/IXL; dst==6 → write (IX+d); dst==4/5 → update idx high/low), writing `self.IX/IY` once at the branch end.
+
+### What warrants a second pair of eyes
+- The flag model's undocumented F5/F3 copies (modeled from the result byte) — confirm against a reference (e.g. z80test) before Phase 3 RTL relies on them; full bit-exactness is Phase 7.
+- The ED subset is minimal (LDI/LDD/LD (nn),rr/LD rr,(nn)/NEG/CPL) — confirm the baseline doesn't need LDIR/CPDR etc. for the demo programs (Phase 4).
+- The `RP_ADD` vs `RP_PUSH` table selection (HL appears in both; AF only in PUSH/POP) — verify PUSH HL/POP HL and PUSH AF/POP AF both work (covered by test_push_pop using BC; add an AF test).
+
+### What should be done in the future
+- Phase 3: write the Z80 object RTL (obj_pc, obj_decode, obj_regfile, obj_alu, obj_flags, obj_memio) milestone-by-milestone, differential-testing each against `z80_model.py` (the Phase 3 exit: zero divergence).
+- Expand the model test suite toward the design doc's ~400 target (more rotates, all condition codes, block-instruction loops, IXH/IXL loads).
+- Cross-check the model against an external Z80 test suite (e.g. z80test/zexall) for flag bit-exactness before locking the oracle.
+
+### Code review instructions
+- `cd pca_z80 && make test_model` — expect `49 passed`.
+- `python3 tools/z80_model.py` — expect `A=07 ... halted=True faulted=False` (3+4).
+- Read `tools/z80_model.py` `_alu`, `_add8`, `_sub8`, `_logic8`, `_add16`, `_inc8`, `_dec8` for the flag model; spot-check against a Z80 flag reference.
+- Confirm no `obj_*.sv` RTL exists yet (Phase 2 invariant: model before object RTL).
+
+### Technical details
+- Files: `tools/z80_isa.py` (contract), `tools/z80_model.py` (oracle, ~600 lines), `sim/test_model.py` (49 tests).
+- Tests: 49 passed in 0.11s; cover ALU flags, loads, 16-bit, control, stack, exchange, rotates, CB, DD/FD, ED, precise bus fault, illegal opcode.
+- Smoke: `python3 tools/z80_model.py` → A=0x07 (3+4), 3 steps, HALT.
+- Invariant held: no Z80 object RTL (`obj_*.sv`) written in this phase.
+- Slips printed: P2 START (plan). P2 DONE to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

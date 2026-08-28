@@ -43,10 +43,14 @@ versions:
 	  python3 --version 2>&1; \
 	} | tee $(BUILD)/tool-versions.txt
 
-# Pure-software unit tests (Phase 2+): reference model, ISA, assembler.
+# Pure-software unit tests (Phase 2): reference model + ISA. Phase 1: substrate sim.
 .PHONY: test
-# Phase 1: run the substrate sim (routing + single-ack + anti-double).
-test: sim_mesh
+test: sim_mesh test_model
+
+# Phase 2 reference-model unit tests (pytest, toolchain-independent).
+.PHONY: test_model
+test_model:
+	python3 -m pytest sim/test_model.py -q
 
 # Phase 1 substrate simulation.
 .PHONY: sim_mesh

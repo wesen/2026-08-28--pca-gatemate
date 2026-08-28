@@ -36,12 +36,18 @@ RelatedFiles:
       Note: Phase 0 placeholder top (counter-LED, proven flow)
     - Path: repo://pca_z80/sim/tb_pca_mesh.sv
       Note: Phase 1 substrate tests (routing + single-ack + anti-double)
+    - Path: repo://pca_z80/sim/test_model.py
+      Note: 49 hand-computed Z80 model unit tests
+    - Path: repo://pca_z80/tools/z80_isa.py
+      Note: The Z80 ISA contract (single source of truth, like opcodes.py)
 ExternalSources: []
 Summary: Build a Z80 microprocessor as a graph of wired-logic objects on Plastic Cell Architecture (PCA) and deploy it on the Olimex GateMateA1-EVB FPGA, reusing the sibling MATE-16 toolchain and verification methodology.
 LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
+
 
 
 
