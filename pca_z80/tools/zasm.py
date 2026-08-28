@@ -66,16 +66,21 @@ def size_of(op, operands_list):
         return 1
     if o == "LD":
         a, b = operands
+        au, bu = a.strip().upper(), b.strip().upper()
+        # (HL)/(BC)/(DE) operands are 1 byte; (nn) operands are 3 bytes
+        if (a.startswith("(") and au in ("(HL)","(BC)","(DE)")) or (b.startswith("(") and bu in ("(HL)","(BC)","(DE)")):
+            return 1
         if b.startswith("(") or a.startswith("("):
-            # LD (nn),A or LD A,(nn) = 3 bytes
             return 3
         if a.upper() in R8 and b.upper() in R8:
             return 1
-        # LD rr,nn (BC/DE/HL/SP) = 3 bytes
         if a.upper() in ("BC","DE","HL","SP"):
             return 3
         return 2
     if o in ("ADD","ADC","SUB","SBC","AND","XOR","OR","CP"):
+        # ADD HL,rr (16-bit) = 1 byte
+        if o == "ADD" and len(operands) >= 2 and operands[0].upper() == "HL" and operands[1].upper() in ("BC","DE","HL","SP"):
+            return 1
         if len(operands) >= 2 and operands[0].upper() == "A":
             v = operands[1]
         else:
@@ -125,13 +130,23 @@ def encode(op, operands_list, addr, symtab, pass2):
         a, b = operands
         au, bu = a.strip().upper(), b.strip().upper()
         # LD (nn),A  -> 0x32 lo hi
-        if au == "(NN)" or (a.strip().upper().startswith("(") and bu == "A"):
-            # parse the address out of the (nn) operand
+        if au == "(NN)" or (a.strip().upper().startswith("(") and bu == "A" and au not in ("(BC)","(DE)","(HL)")):
             addr_str = a.strip()
             if addr_str.startswith("(") and addr_str.endswith(")"):
                 addr_str = addr_str[1:-1]
             nn = parse_imm(addr_str, symtab, pass2) & 0xFFFF
             return [0x32, nn & 0xFF, (nn>>8) & 0xFF]
+        # LD A,(nn) -> 0x3A lo hi
+        if au == "A" and bu.startswith("(") and bu not in ("(BC)","(DE)","(HL)"):
+            addr_str = b.strip()[1:-1]
+            nn = parse_imm(addr_str, symtab, pass2) & 0xFFFF
+            return [0x3A, nn & 0xFF, (nn>>8) & 0xFF]
+        # LD A,(BC)=0x0A, LD A,(DE)=0x1A
+        if au == "A" and bu == "(BC)": return [0x0A]
+        if au == "A" and bu == "(DE)": return [0x1A]
+        # LD r,(HL) -> 0x46|(r<<3) ; LD (HL),r -> 0x70|r
+        if au in R8 and bu == "(HL)": return [0x46 | (R8[au] << 3)]
+        if au == "(HL)" and bu in R8: return [0x70 | R8[bu]]
         if au in R8 and bu in R8:
             return [0x40 | (R8[au]<<3) | R8[bu]]
         if au in R8:

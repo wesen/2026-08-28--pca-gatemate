@@ -148,3 +148,12 @@ Step 16 / Phase 3D: added 16-bit register-pair ops (LD rr,nn/INC rr/DEC rr/ADD H
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_decode.sv — Z80 decode master (3A-3F/3F5/3D: +16-bit LD/INC/DEC/ADD HL)
 
+
+## 2026-08-28
+
+Step 17 / Phase 3D.5: added memory-operand LDs (LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn)). decode +~18 states (compose HL/BC/DE/nn -> addr, MEM read/write, 8-bit reg access). zasm +mem-LD encodings + size_of fixes (ADD HL,rr 1 byte; (HL)/(BC)/(DE) 1 byte vs (nn) 3 byte). 3 differential tests PASS (LD A,(HL) A=0x99; LD (HL),B ram[0]=0x55; LD A,(nn) A=0x88; addr>=256 hits RAM). +9 assembler golden vectors (18 total). Synth clean. make test = mesh + object graph (mem-LD) + 49 model + 18 asm + 6 integ. Memory map: ROM<256/RAM>=256/GPIO=0 (baseline simplification; integ harness stays ROM-only).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/zasm.py — Two-pass assembler (now with memory-operand LDs, INC/DEC, ADD HL, 18 golden vectors)
+

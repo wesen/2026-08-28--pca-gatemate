@@ -207,9 +207,32 @@ module tb_z80_core;
         if (dut.u_regfile.dbg_h !== 8'hFF || dut.u_regfile.dbg_l !== 8'hFF) begin $display("FAIL 3D3: HL=%h%h (oracle 0xFFFF)", dut.u_regfile.dbg_h, dut.u_regfile.dbg_l); errors=errors+1; end
         if (errors==0) $display("3D3: DEC HL matches oracle (HL=0xFFFF)");
 
+        // ---- 3D.5: LD A,(HL) (LD HL,0x0100; LD A,(HL); ram[0]=0x99; reads at >=256 hit RAM) ----
+        errors = 0;
+        dut.u_memio.ram[8'h00] = 8'h99;   // addr 0x0100 -> ram index 0x00 (reads >=ROM_DEPTH hit RAM)
+        run_prog(8'h21, 8'h00, 8'h01, 8'h7E, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD HL,0x0100; LD A,(HL); HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h99) begin $display("FAIL 3D5a: A=%h (oracle 0x99)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3D5a: LD A,(HL) matches oracle (A=0x99)");
+
+        // ---- 3D.5: LD (HL),r (LD HL,0x0100; LD B,0x55; LD (HL),B -> ram[0]=0x55) ----
+        errors = 0;
+        run_prog(8'h21, 8'h00, 8'h01, 8'h06, 8'h55, 8'h70, 8'h76, 8'h00, 7);  // LD HL,0x0100; LD B,0x55; LD (HL),B; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_memio.ram[8'h00] !== 8'h55) begin $display("FAIL 3D5b: ram[0]=%h (oracle 0x55)", dut.u_memio.ram[8'h00]); errors=errors+1; end
+        if (errors==0) $display("3D5b: LD (HL),B matches oracle (ram[0]=0x55)");
+
+        // ---- 3D.5: LD A,(nn) (LD A,(0x0100); ram[0]=0x88) ----
+        errors = 0;
+        dut.u_memio.ram[8'h00] = 8'h88;
+        run_prog(8'h3A, 8'h00, 8'h01, 8'h76, 8'h00, 8'h00, 8'h00, 8'h00, 4);  // LD A,(0x0100); HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h88) begin $display("FAIL 3D5c: A=%h (oracle 0x88)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3D5c: LD A,(nn) matches oracle (A=0x88)");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A-3F/3F5/3D object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC r/16-bit) matches oracle");
+            $display("PASS: Phase 3A-3F/3F5/3D/3D5 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC/16-bit/mem-LD) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;

@@ -56,7 +56,7 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [ ] 3B.5 LD r,(HL)/(HL),r + LD A,(BC)/(DE)/(nn) (memory-operand LDs)
 - [x] 3C 8-bit ALU + flags — add obj_alu, obj_flags (PASS; synth clean ~4760 cells)
 - [x] 3D 16-bit + IX/IY — LD rr,nn/INC-DEC rr/ADD HL,rr done (PASS); IX/IY (DD/FD) deferred
-- [ ] 3D.5 memory-operand LDs (LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn))
+- [x] 3D.5 memory-operand LDs — LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn) done (PASS)
 - [x] 3E JP/JR/CALL/RET — JP/JR/JR cc done (PASS; synth clean ~4960 cells); CALL/RET done in 3F
 - [x] 3F stack + I/O + faults — CALL/RET/PUSH/POP done (PASS; synth clean ~5450 cells); I/O (IN/OUT) + RET cc/RST pending
 - [x] 3F.5 INC/DEC r + LD (nn),A (GPIO) — done (PASS; enables blinking-LED demo)

@@ -1146,6 +1146,74 @@ This step added the 16-bit register-pair operations (LD rr,nn, INC rr, DEC rr, A
 - Enum widened to 7 bits (~50 states).
 - Slips: 3F.5 done (Step 15). 3D milestone slip to follow.
 
+## Step 17: Build Phase 3 — milestone 3D.5 (memory-operand LDs: LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn))
+
+This step added the memory-operand LDs (LD r,(HL), LD (HL),r, LD A,(BC), LD A,(DE), LD A,(nn)) to the decode and assembler, the last big ISA gap before the DD/FD/CB/ED prefixes. Three differential tests pass against the oracle: LD A,(HL) (A=0x99), LD (HL),B (ram[0]=0x55), LD A,(nn) (A=0x88). The decode added ~18 states composing H:L (or BC/DE, or a fetched nn) into a memory address, then a MEM read/write and an 8-bit reg read/write. The assembler size_of/encode gained the (HL)/(BC)/(DE) (1-byte) vs (nn) (3-byte) distinction. This unblocks programs that touch RAM — the selftest/blink programs so far were ROM+GPIO only. Synth clean; full regression green (49 model + 18 assembler + 6 integration).
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Add 3D.5 — the memory-operand LDs so programs can read/write RAM via HL/BC/DE/(nn), differential-tested against the oracle, and add golden vectors to the assembler.
+
+**Inferred user intent:** A Z80 that can touch memory (the (HL) pointer idiom, (BC)/(DE) loads, absolute (nn) loads) — the foundation for real data-handling programs.
+
+**Commit (code/docs):** (this step) Phase 3D.5 memory-LDs.
+
+### What I did
+- Added helpers: `is_ld_r_hl` (LD r,(HL): 0x46-0x7E with src=6, excluding 0x76 HALT), `is_ld_hl_r` (LD (HL),r: 0x70-0x77), `is_ld_a_bcde` (LD A,(BC)/(DE): 0x0A/0x1A), `is_ld_a_nn_read` (LD A,(nn): 0x3A).
+- Added ~18 decode states: S_LDRHL_READ_HL/MEMRD/WRITE_R (LD r,(HL)); S_LDHLR_READ_HL/READ_R/MEMWR (LD (HL),r); S_LDABC_READ/MEMRD/WRITE_A (LD A,(BC)/(DE), using r_src[0]=ir[4] to pick BC vs DE); S_LDANN_LO/INC1/HI/INC2/MEMRD/WRITE_A (LD A,(nn), fetching the 16-bit address with PC incs).
+- Added memory-LD encodings to zasm.py (LD r,(HL)=0x46|(r<<3), LD (HL),r=0x70|r, LD A,(BC)=0x0A, LD A,(DE)=0x1A, LD A,(nn)=0x3A lo hi) and fixed size_of to distinguish (HL)/(BC)/(DE) (1 byte) from (nn) (3 byte), and ADD HL,rr (1 byte, was sized 2 → broke address layout).
+- Added 3 differential tests (3D5a LD A,(HL) A=0x99; 3D5b LD (HL),B ram[0]=0x55; 3D5c LD A,(nn) A=0x88) using addr 0x0100 (≥ ROM_DEPTH so reads hit RAM; the RTL memory map: addr<256 → ROM, ≥256 → RAM, writes always → RAM except addr 0 GPIO).
+- Added 6 memory-LD golden vectors + INC/DEC/ADD HL golden vectors to test_assembler.py (now 18 tests).
+- Confirmed synthesis (0 errors) and the full regression.
+
+### Why
+3D.5 unblocks RAM-touching programs — until now, programs were ROM+GPIO only (selftest/blink). The (HL) pointer idiom is the Z80's primary data-access mechanism; (BC)/(DE)/(nn) loads cover the rest. The memory-map subtlety (reads <256 hit ROM, ≥256 hit RAM) is a baseline simplification (program in ROM, data in RAM); the integration harness's model-vs-RTL comparison would diverge on RAM addresses (the model has a flat 64K, the RTL splits ROM/RAM), so 3D.5 is tested via the direct RTL testbench, not the integration harness.
+
+### What worked
+- Reusing the regfile 16-bit pair access (idx 11=HL, 9=BC, 10=DE) to compose the address in one read; the MEM read/write then uses `pair_val` as the address.
+- The `ir[4]` trick (0=BC, 1=DE) for LD A,(BC)/(DE) avoided a 2-bit rp encoding.
+- The memory-map-aware test addresses (0x0100 → RAM) made the read tests hit RAM correctly.
+
+### What didn't work
+- **size_of ADD returned 2 for ADD HL,rr** (it didn't know the 16-bit ADD is 1 byte), so `ADD HL,BC` got a 2-byte slot but a 1-byte encode, leaving a gap (assembled to 0x09 0x00). Caught by the new test_inc_dec golden vector; fixed size_of to return 1 for ADD HL,rr.
+- **size_of LD returned 3 for all parenthesized operands** (LD r,(HL) is 1 byte, not 3); fixed to distinguish (HL)/(BC)/(DE) (1) from (nn) (3).
+- **`((ir>>4)&1)[0]` syntax** (iverilog indefinite-width concat then bit-index); fixed to `ir[4]`.
+- **RAM-set-after-run_prog** in the first test draft (the read happened during run_prog with RAM=0); fixed by setting RAM before run_prog.
+
+### What I learned
+- The Z80's memory-operand LDs all compose a 16-bit address (HL/BC/DE/nn) then do a MEM read/write + an 8-bit reg access — a uniform 3-transaction pattern (read addr pair, MEM, write/read 8-bit reg). The decode states mirror this.
+- The baseline memory map (ROM<256, RAM≥256, GPIO=addr 0) is a simplification that breaks the flat-memory model-vs-RTL comparison for RAM addresses; documented so the integration harness stays ROM-only and RAM tests use the direct testbench. A unified memory object (or a RAM region the model mirrors) is a Phase 7 refinement.
+- size_of and encode must agree on every form; the golden vectors are the safety net (ADD HL,rr sizing bug was caught only after I added the golden vector).
+
+### What was tricky to build
+- The size_of/encode consistency for LD's many forms (r,r'/r,n/rr,nn/r,(HL)/(HL),r/A,(BC)/(DE)/(nn)/(nn),A) — each has a distinct byte length and opcode; size_of must match encode exactly or the address layout breaks. The golden vectors caught the two sizing bugs.
+- The memory-map-aware test (see What didn't work) — reads at addr<256 hit ROM, so the (HL)/(nn) read tests must use addr≥256.
+
+### What warrants a second pair of eyes
+- The memory map (ROM<256, RAM≥256, GPIO=0) vs the model's flat 64K — confirm the integration harness only runs ROM-only programs (it does; selftest/blink don't read RAM). A unified memory is a Phase 7 item.
+- The LD A,(BC)/(DE) `ir[4]` mapping (0x0A→BC, 0x1A→DE) — 3D5 didn't test these directly (only via the assembler golden vector); add an RTL test that pre-seeds RAM at 0x0100 via BC/DE.
+- The (HL) read vs (HL) write asymmetry (read at <256 hits ROM, write always hits RAM) — a program using (HL) as a pointer below 0x100 would read ROM, not its own RAM write; document this as a baseline limitation.
+
+### What should be done in the future
+- The DD/FD (IX/IY), CB (shifts/bits), ED (block) prefixes — the largest remaining ISA add; the model already implements them (Phase 2), so the work is the decode prefix machinery + assembler prefixes.
+- A unified memory object (or a RAM region mirrored in the model) so the integration harness can test RAM-touching programs differentially.
+- 3F.5b: real OUT/IN port I/O (separate I/O space, not the memory-mapped GPIO at addr 0).
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: ... mem-LD ... matches oracle`.
+- `make test` — expect mesh + object graph (with mem-LD) + 49 model + 18 assembler + 6 integration.
+- `python3 -c "from zasm import assemble; print(bytes(assemble('LD A,(HL)')[0]).hex())"` → `7e`.
+- Read `obj_decode.sv`'s S_LDRHL_*/S_LDHLR_*/S_LDABC_*/S_LDANN_* states.
+
+### Technical details
+- Files: `rtl/obj_decode.sv` (+~18 mem-LD states, +helpers), `tools/zasm.py` (+mem-LD encodings, size_of fixes), `sim/tb_z80_core.sv` (+3 mem-LD tests), `sim/test_assembler.py` (+9 golden vectors → 18 total).
+- Oracle: LD A,(HL) A=0x99; LD (HL),B ram[0]=0x55; LD A,(nn) A=0x88. RTL matches.
+- Synth: 0 errors. `make test` green (mesh + object graph + 49 model + 18 asm + 6 integ).
+- Memory map: addr<256 → ROM (read), ≥256 → RAM (read); writes → RAM except addr 0 → GPIO.
+- Slips: 3D done (Step 16). 3D.5 milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

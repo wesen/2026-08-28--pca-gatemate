@@ -74,6 +74,21 @@ def test_misc():
     assert asm_bytes("RLCA") == bytes([0x07])
     assert asm_bytes("EXX") == bytes([0xD9])
 
+def test_mem_ld():
+    assert asm_bytes("LD A,(HL)") == bytes([0x7E])
+    assert asm_bytes("LD (HL),B") == bytes([0x70])
+    assert asm_bytes("LD A,(BC)") == bytes([0x0A])
+    assert asm_bytes("LD A,(DE)") == bytes([0x1A])
+    assert asm_bytes("LD A,(0x1234)") == bytes([0x3A, 0x34, 0x12])
+    assert asm_bytes("LD (0x1234),A") == bytes([0x32, 0x34, 0x12])
+
+def test_inc_dec():
+    assert asm_bytes("INC B") == bytes([0x04])
+    assert asm_bytes("DEC A") == bytes([0x3D])
+    assert asm_bytes("INC BC") == bytes([0x03])
+    assert asm_bytes("DEC HL") == bytes([0x2B])
+    assert asm_bytes("ADD HL,BC") == bytes([0x09])
+
 # ---- cross-check: assemble -> model run -> state matches ----
 def test_cross_check_alu_loop():
     prog = """
