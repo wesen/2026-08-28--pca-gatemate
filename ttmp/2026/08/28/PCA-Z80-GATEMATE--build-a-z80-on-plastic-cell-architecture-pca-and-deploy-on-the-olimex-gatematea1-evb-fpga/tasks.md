@@ -1,4 +1,82 @@
+---
+Title: Tasks
+Ticket: PCA-Z80-GATEMATE
+Status: active
+Topics:
+    - pca
+    - z80
+DocType: reference
+Intent: long-term
+Owners: []
+RelatedFiles: []
+ExternalSources: []
+Summary: "Phase checklist for the PCA-Z80 build. Each task maps to a phase exit criterion in the intern onboarding guide (§13)."
+LastUpdated: 2026-08-28T14:35:00-04:00
+WhatFor: "Track phase completion against the implementation plan."
+WhenToUse: "Check off tasks as each phase exit criterion is met."
+---
+
 # Tasks
 
 ## TODO
 
+### Phase 0 — Ticket, repo, and tooling bootstrap
+- [x] Create docmgr ticket `PCA-Z80-GATEMATE` with design doc + diary  *(done this session)*
+- [x] Gather + study PCA literature; write `sources/SOURCES.md`  *(done this session)*
+- [ ] Install OSS CAD Suite toolchain (reuse `~/fpga/oss-cad-suite/` from sibling project; source `environment`, verify 7 tools)
+- [ ] `pca_z80/` project skeleton (rtl/tools/programs/sim/constraints/scripts/build)
+- [ ] `.gitignore` (build/*, *.vcd, *.fst, *.log, __pycache__/, .pytest_cache/)
+- [ ] `Makefile` stub incl. `versions` target
+- [ ] `make versions` → `build/tool-versions.txt`
+- [ ] Exit: toolchain verified; skeleton synthesizes an empty top
+
+### Phase 1 — PCA cell substrate (paper 01 §2, paper 05)
+- [ ] `pca_z80/rtl/pca_cell.sv` — plastic part LUT-RAM + built-in part FSM (§9.1)
+- [ ] `pca_z80/rtl/pca_router.sv` — 5-port exact routing, held-request/ack (§9.2)
+- [ ] `pca_z80/rtl/pca_mesh.sv` — R×C cell array (§9.3)
+- [ ] Directed cell/router tests; held-request anti-double assertion under random stalls
+- [ ] Exit: a packet routes A→B with a single ack; anti-double holds
+
+### Phase 2 — Z80 reference model (the oracle)
+- [x] No RTL yet (Phase-2 invariant from MATE-16)  *(enforced)*
+- [ ] `pca_z80/tools/z80_isa.py` — single ISA contract (DR-3)
+- [ ] `pca_z80/tools/z80_model.py` — all baseline opcodes, flags, prefixes (§10.1)
+- [ ] `sim/test_model.py` — ~400 unit tests with hand-computed state
+- [ ] Exit: model passes the unit suite; no RTL written
+
+### Phase 3 — Object RTL, milestone per object (§6.4)
+- [ ] `obj_pc.sv` — PC + R refresh counter
+- [ ] `obj_regfile.sv` — A F BC DE HL + primed set + IX IY SP (LUT-RAM)
+- [ ] `obj_alu.sv` — bit-serial 8-bit ALU + shifter (§8.2)
+- [ ] `obj_flags.sv` — S Z H P/V N C
+- [ ] `obj_memio.sv` — ROM/RAM + port regs + IFF/IM
+- [ ] `obj_decode.sv` — prefix FSM + PLA control unit (§7, DR-6)
+- [ ] 3A fetch/NOP/HALT; 3B LD immediate/register; 3C 8-bit ALU + flags; 3D 16-bit + IX/IY; 3E JP/JR/CALL/RET; 3F stack + I/O
+- [ ] Exit: each object passes directed tests vs model slices; decode handles all 4 prefix families
+
+### Phase 4 — Assembler + decoder round-trip
+- [ ] `pca_z80/tools/zasm.py` — two-pass, no eval, prefix + displacement encoding (§11.1)
+- [ ] `pca_z80/tools/zdis.py` — disassembler / message trace (§11.2)
+- [ ] `sim/test_assembler.py` — golden vectors, symbols, negatives
+- [ ] Exit: golden vectors byte-exact; deterministic; clear diagnostics
+
+### Phase 5 — Placer + integration on the mesh
+- [ ] `pca_z80/tools/placer.py` — static object placement + routing tables (§11.3)
+- [ ] Object configs as real Make build dependency (DR-10 from MATE-16)
+- [ ] `pca_mesh` wired with placed objects; system differential tests vs `z80_model.py`
+- [ ] Exit: assembled Z80 runs on mesh in sim; differential suite zero divergence; selftest reaches magic addr
+
+### Phase 6 — Verification, FPGA implementation, hardware
+- [ ] Requirements-verification matrix
+- [ ] Constrained-random with recorded seeds + reduced cases
+- [ ] Synthesis/PnR/timing clean; 10 MHz positive slack; resource ledger
+- [ ] Hardware bring-up: Z80 `OUT` blinks LED; UART emits "Hi"
+- [ ] Engineering report + bug diary
+- [ ] Exit: A0–A15 acceptance; reproducible from clean checkout
+
+### Phase 7 — Extensions (only after baseline passes)
+- [ ] Runtime pressure-based object placement (papers 02b, 05)
+- [ ] Full bit-parallel datapath (§8.1)
+- [ ] Interrupts (IM 0/1/2), RETI/RETN
+- [ ] Undocumented-opcode bit-exactness
+- [ ] Multi-context / partial reconfiguration; VGA / PS2 / PSRAM (sibling §4.22)
