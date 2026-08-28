@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Human Verification</title>
+    <style>
+        body {
+            font-family: "Arial";
+        }
+    </style>
+    <script type="text/javascript">
+    window.awsWafCookieDomainList = ['ieice.org'];
+    window.gokuProps = {
+"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AG3Nr+HSYpvV1TD8RmX0oBAAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMclaUbHdOORaNj+F6AgEQgDv5+Ld32lABJxQh8t/Mpm0mhyzeARC/fO43LcTx35ImuQtC1P6lsBl4nh1nf98EvunCEF0SUe65rdEKKw==",
+          "iv":"CgAFIgbo7wAAAEbZ",
+          "context":"VO+UtE2Ue3OOnB+49aHbeXCyGBsgy7bc/ucDyJ8/5DcQ303/cQfUwW4G4y9krDDjlgmJxR4Vr9I8gYOxmTSt805yZHa9xtPS8wKn0FHL2BQNMdidAttz1JYzP6EI7qTPysNzD7iEI4B+9dfZG9h/yx/zz1/amuB0c2eFLmYhV6QQtjbX56OlLM/H0jYL9cIxhYU2x5rdQrF/QGbURrR1AdI7ApmSmsnrzwRXf4kYGILxZSWDkClYZvLsAeFbHDdeObeAD6Ut4EDZQ5r+FhpW0a14GF1hwgpLDAjCjCDBOeilhScODQXT6JyulIVA0/eqbSKMy0oNrfnqIAG7YBwgIVDhtFmKZw3NiJQQFTeOKbQC+nj1Q5njGOAhmLXnQngnggg8jhYylnSYExftAf0WNNtb3dpKDEGHnQ6i6FSj5N00vyGA6ZnZmDBZqQ4qRxo4eWdvYwBXTL+Cpjdp+yWkoG80OXWqE1NvnAFxlPgKnG6P2HPYus+r1t4oaF0ST0wfEukoSaWaxTVWj9xGaly+dEe3XNkCEik92jHCmk9zEkA3oajH9UuBUAssNQ=="
+};
+    </script>
+    <script src="https://5abb9ae0fc2a.e2d76dc2.ap-northeast-1.token.awswaf.com/5abb9ae0fc2a/db9f82f32a8b/6fab881246f6/challenge.js"></script>
+    <script src="https://5abb9ae0fc2a.e2d76dc2.ap-northeast-1.captcha.awswaf.com/5abb9ae0fc2a/db9f82f32a8b/6fab881246f6/captcha.js"></script>
+</head>
+<body>
+    <div id="captcha-container"></div>
+    <script type="text/javascript">
+        AwsWafIntegration.saveReferrer();
+        window.addEventListener("load", function() {
+          const container = document.querySelector("#captcha-container");
+          CaptchaScript.renderCaptcha(container, async (voucher) => {
+              await ChallengeScript.submitCaptcha(voucher);
+              window.location.reload(true);
+          }
+      );
+    });
+    </script>
+    <noscript>
+        <h1>JavaScript is disabled</h1>
+        In order to continue, you need to verify that you're not a robot by solving a CAPTCHA puzzle.
+         The CAPTCHA puzzle requires JavaScript. Enable JavaScript and then reload the page.
+    </noscript>
+</body>
+</html>

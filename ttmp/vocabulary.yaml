@@ -5,6 +5,28 @@ topics:
       description: Backend services
     - slug: websocket
       description: WebSocket lifecycle & events
+    - slug: pca
+      description: 'Plastic Cell Architecture: dual built-in/plastic reconfigurable cell mesh'
+    - slug: reconfigurable-computing
+      description: Dynamically/fine-grain reconfigurable hardware computing
+    - slug: z80
+      description: Z80 8-bit microprocessor ISA and datapath
+    - slug: asynchronous
+      description: Asynchronous / clockless logic, bundled protocol, four-cycle handshake
+    - slug: fpga
+      description: FPGA targets, synthesis, place-and-route
+    - slug: rtl
+      description: Register-transfer-level SystemVerilog design
+    - slug: cpu-design
+      description: Processor microarchitecture, datapath, control, ISA
+    - slug: toolchain
+      description: 'OSS CAD Suite: Yosys, nextpnr-himbaechel, gmpack, openFPGALoader'
+    - slug: verification
+      description: Reference models, differential testing, test pyramids
+    - slug: hardware
+      description: Board bring-up, pins, constraints, on-chip peripherals
+    - slug: software-tools
+      description: Assemblers, simulators, object-graph/place-and-route tooling
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes

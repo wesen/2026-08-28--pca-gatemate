@@ -1,0 +1,19 @@
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# FPGA / build artifacts
+build/
+*.vcd
+*.fst
+*.fst.h
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor
+*.swp
+*~
+.DS_Store
