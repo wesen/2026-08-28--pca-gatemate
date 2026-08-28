@@ -56,8 +56,8 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [ ] 3B.5 LD r,(HL)/(HL),r + LD A,(BC)/(DE)/(nn) (memory-operand LDs)
 - [x] 3C 8-bit ALU + flags — add obj_alu, obj_flags (PASS; synth clean ~4760 cells)
 - [ ] 3D 16-bit + IX/IY
-- [ ] 3E JP/JR/CALL/RET
-- [ ] 3F stack + I/O + faults
+- [x] 3E JP/JR/CALL/RET — JP/JR/JR cc done (PASS; synth clean ~4960 cells); CALL/RET need stack (3F)
+- [ ] 3F stack + I/O + faults (CALL/RET/PUSH/POP/RST)
 - [ ] Exit: each object passes directed tests vs model slices; decode handles all 4 prefix families
 
 ### Phase 4 — Assembler + decoder round-trip

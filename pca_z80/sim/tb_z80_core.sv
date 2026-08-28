@@ -113,9 +113,33 @@ module tb_z80_core;
         if (dut.u_flags.dbg_f !== 8'h51) begin $display("FAIL 3C5: F=%h (oracle 0x51 Z|H|C)", dut.u_flags.dbg_f); errors=errors+1; end
         if (errors==0) $display("3C5: ADD A,1 (0xFF+0x01) matches oracle (A=0x00 F=0x51 Z|H|C)");
 
+        // ---- 3E: JP nn (jump taken) ----
+        // LD A,0x01; JP 0x06; (0x03 HALT skipped); LD A,0x02; HALT -> A=0x02 count=4
+        errors = 0;
+        run_prog(8'h3E, 8'h01, 8'hC3, 8'h06, 8'h00, 8'h76, 8'h3E, 8'h02, 8);  // LD A,1; JP 6; HALT; LD A,2; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h02) begin $display("FAIL 3E1: A=%h (oracle 0x02)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3E1: JP nn matches oracle (A=0x02)");
+
+        // ---- 3E: JR e (jump taken) ----
+        // LD A,0x01; JR +2 (to LD A,0x02 at 0x06); HALT; HALT; LD A,0x02; HALT -> A=0x02
+        errors = 0;
+        run_prog(8'h3E, 8'h01, 8'h18, 8'h02, 8'h76, 8'h76, 8'h3E, 8'h02, 8);  // LD A,1; JR +2; HALT; HALT; LD A,2; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h02) begin $display("FAIL 3E2: A=%h (oracle 0x02)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3E2: JR e matches oracle (A=0x02)");
+
+        // ---- 3E: JR NZ not taken (Z set) ----
+        // LD A,0; CP 0 (Z set); JR NZ +2 (NOT taken); LD A,1; HALT -> A=0x01
+        errors = 0;
+        run_prog(8'h3E, 8'h00, 8'hFE, 8'h00, 8'h20, 8'h02, 8'h3E, 8'h01, 8);  // LD A,0; CP 0; JR NZ +2; LD A,1; HALT (offset lands on the LD)
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h01) begin $display("FAIL 3E3: A=%h (oracle 0x01)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3E3: JR NZ not-taken matches oracle (A=0x01)");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A/3B/3C object graph (NOP/HALT + LD + ALU) matches oracle");
+            $display("PASS: Phase 3A/3B/3C/3E object graph (NOP/HALT + LD + ALU + JP/JR) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;

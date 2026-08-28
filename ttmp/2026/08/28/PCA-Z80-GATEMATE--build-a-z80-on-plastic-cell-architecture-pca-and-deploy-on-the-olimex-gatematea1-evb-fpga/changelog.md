@@ -85,3 +85,12 @@ Step 9 / Phase 3C: added obj_alu + obj_flags + 8-bit ALU A,r/A,n (ADD/SUB/AND/XO
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_alu.sv — Z80 8-bit ALU object (ADD/SUB/AND/XOR/OR/CP + flags, ported from z80_model.py)
 
+
+## 2026-08-28
+
+Step 10 / Phase 3E: added control flow JP nn / JR e / JR cc,e (NZ/Z/NC/C). decode +9 control states (JP_LO/INC1/HI/INC2/PC_SET; JR_READ_F/FETCH/INC/DO) reading flags for conditions, sign-extending the JR displacement. 3 differential tests vs oracle all PASS (JP taken, JR taken, JR NZ not-taken). Synth clean (~4960 cells). Skipped ahead from 3C to 3E (control unblocks loops/programs; 3D 16-bit and 3F stack/CALL-RET follow). make test = mesh + 3A/3B/3C/3E + 49 model tests.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_decode.sv — Z80 decode master (3A/3B/3C/3E: NOP/HALT/LD/ALU/JP/JR)
+

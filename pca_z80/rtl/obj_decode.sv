@@ -36,6 +36,8 @@ module obj_decode (
         S_REG_READ_SRC, S_REG_WRITE_DST,
         S_ALU_READ_A, S_ALU_READ_B, S_ALU_FETCH_IMM, S_ALU_INC_IMM,
         S_ALU_OP, S_ALU_WRITE_A, S_ALU_WRITE_FLAGS,
+        S_JP_LO, S_JP_INC1, S_JP_HI, S_JP_INC2, S_PC_SET,
+        S_JR_READ_F, S_JR_FETCH, S_JR_INC, S_JR_DO,
         S_HALT, S_FAULT
     } state_e;
     state_e state;
@@ -54,6 +56,12 @@ module obj_decode (
     logic [3:0]  alu_op;     // ALU_ADD/SUB/AND/XOR/OR/CP
     logic [7:0]  alu_a, alu_b, alu_result, alu_flags;
     logic        alu_is_cp;  // CP: don't write A
+    // control-flow execute path (3E)
+    logic [15:0] jp_addr;    // assembled JP/CALL address
+    logic [7:0]  jr_e;       // JR displacement (signed)
+    logic [2:0]  jr_cc;      // condition code for JR cc
+    logic        jr_taken;   // resolved condition
+    logic [7:0]  flag_q;     // latched F for JR cc
 
     assign dbg_ir     = ir;
     assign dbg_pc_val = pc_val;
@@ -96,6 +104,41 @@ module obj_decode (
             default: alu_op_of = 4'd0;
         endcase
     endfunction
+    // control-flow helpers (3E)
+    function automatic logic is_jp(input logic [7:0] o);
+        is_jp = (o == 8'hC3);
+    endfunction
+    function automatic logic is_jr(input logic [7:0] o);
+        is_jr = (o == 8'h18);
+    endfunction
+    function automatic logic is_jr_cc(input logic [7:0] o);
+        is_jr_cc = (o == 8'h20) | (o == 8'h28) | (o == 8'h30) | (o == 8'h38);
+    endfunction
+    // JR cc code: 0x20=NZ,0x28=Z,0x30=NC,0x38=C -> cc index 0,1,2,3
+    function automatic logic [2:0] jr_cc_of(input logic [7:0] o);
+        case (o)
+            8'h20: jr_cc_of = 3'd0;  // NZ
+            8'h28: jr_cc_of = 3'd1;  // Z
+            8'h30: jr_cc_of = 3'd2;  // NC
+            8'h38: jr_cc_of = 3'd3;  // C
+            default: jr_cc_of = 3'd0;
+        endcase
+    endfunction
+    // evaluate a JR cc against F (S=0x80 Z=0x40 C=0x01)
+    function automatic logic cc_taken(input logic [2:0] cc, input logic [7:0] f);
+        case (cc)
+            3'd0: cc_taken = (f & 8'h40) == 8'h00;  // NZ
+            3'd1: cc_taken = (f & 8'h40) != 8'h00;  // Z
+            3'd2: cc_taken = (f & 8'h01) == 8'h00;  // NC
+            3'd3: cc_taken = (f & 8'h01) != 8'h00;  // C
+            default: cc_taken = 1'b0;
+        endcase
+    endfunction
+    // sign-extend an 8-bit JR displacement to 16-bit
+    function automatic logic [15:0] sext8(input logic [7:0] e);
+        if (e & 8'h80) sext8 = {8'hFF, e};
+        else sext8 = {8'h00, e};
+    endfunction
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -116,6 +159,11 @@ module obj_decode (
             alu_result<= 8'h00;
             alu_flags <= 8'h00;
             alu_is_cp <= 1'b0;
+            jp_addr   <= 16'h0000;
+            jr_e      <= 8'h00;
+            jr_cc     <= 3'd0;
+            jr_taken  <= 1'b0;
+            flag_q    <= 8'h00;
             bus_req  <= '0;
         end else begin
             case (state)
@@ -182,6 +230,17 @@ module obj_decode (
                         alu_op    <= alu_op_of(ir);
                         alu_is_cp <= (alu_op_of(ir) == 4'd7);
                         state     <= S_ALU_FETCH_IMM;
+                    end else if (is_jp(ir)) begin
+                        // JP nn
+                        state <= S_JP_LO;
+                    end else if (is_jr(ir)) begin
+                        // JR e
+                        jr_taken <= 1'b1;
+                        state    <= S_JR_FETCH;
+                    end else if (is_jr_cc(ir)) begin
+                        // JR cc,e
+                        jr_cc <= jr_cc_of(ir);
+                        state <= S_JR_READ_F;
                     end else begin
                         faulted <= 1'b1;
                         state   <= S_FAULT;
@@ -317,6 +376,107 @@ module obj_decode (
                         count       <= count + 32'd1;
                         bus_req.req <= 1'b0;
                         state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- JP nn: fetch low, inc PC, fetch high, inc PC, set PC ----
+                S_JP_LO: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        jp_addr[7:0] <= bus_resp.rdata[7:0];
+                        bus_req.req  <= 1'b0;
+                        state       <= S_JP_INC1;
+                    end
+                end
+                S_JP_INC1: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_JP_HI;
+                    end
+                end
+                S_JP_HI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        jp_addr[15:8] <= bus_resp.rdata[7:0];
+                        bus_req.req  <= 1'b0;
+                        state       <= S_JP_INC2;
+                    end
+                end
+                S_JP_INC2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_PC_SET;
+                    end
+                end
+                S_PC_SET: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_SET; bus_req.wdata <= jp_addr;
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- JR cc: read flags, resolve condition ----
+                S_JR_READ_F: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        flag_q      <= bus_resp.rdata[7:0];
+                        jr_taken    <= cc_taken(jr_cc, bus_resp.rdata[7:0]);
+                        bus_req.req <= 1'b0;
+                        state       <= S_JR_FETCH;
+                    end
+                end
+                // ---- JR e / JR cc,e: fetch the displacement byte ----
+                S_JR_FETCH: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        jr_e       <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_JR_INC;
+                    end
+                end
+                // ---- JR: inc PC past the displacement ----
+                S_JR_INC: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_JR_DO;
+                    end
+                end
+                // ---- JR do: set PC if taken, else retire ----
+                S_JR_DO: begin
+                    if (jr_taken) begin
+                        if (!bus_req.req) begin
+                            bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_SET;
+                            bus_req.wdata <= pc_cur + sext8(jr_e);
+                        end else if (bus_resp.ack) begin
+                            count       <= count + 32'd1;
+                            bus_req.req <= 1'b0;
+                            state       <= S_FETCH_PC;
+                        end
+                    end else begin
+                        count <= count + 32'd1;
+                        state <= S_FETCH_PC;   // not taken: PC already past displacement
                     end
                 end
                 S_HALT, S_FAULT: begin

@@ -670,6 +670,71 @@ This step added the 8-bit ALU (`obj_alu`) and flags (`obj_flags`) objects and ex
 - Portability rules added: enum width ≥ states; enum ternary → if/else.
 - Slips: (P3 START was Step 7, 3B done Step 8). 3C milestone slip to follow.
 
+## Step 10: Build Phase 3 — milestone 3E (control flow: JP/JR/JR cc)
+
+This step added the non-stack control-flow instructions (JP nn, JR e, JR cc,e with NZ/Z/NC/C) to the decode master, reading flags from the flags object for conditional JR. Three directed differential tests pass against the oracle: JP nn (taken), JR e (taken), JR NZ not-taken (Z set → fall through). The object graph now retires NOP/HALT/LD/ALU/JP/JR and the core synthesizes clean (~4960 cells). This is the milestone that makes the Z80 a *looping* machine and proves the decode FSM can set the PC object via the bus (PC_SET) for both absolute (JP) and relative (JR, sign-extended displacement) control flow. CALL/RET (which need the stack) are 3F.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Continue Phase 3 with milestone 3E — control flow (JP/JR/JR cc), differential-tested against the oracle. (Skipped ahead from 3C to 3E because control flow unblocks loops and real programs; 3D 16-bit and 3F stack/CALL/RET follow.)
+
+**Inferred user intent:** A Z80 that can jump and loop, not just straight-line code.
+
+**Commit (code/docs):** (this step) Phase 3E control flow.
+
+### What I did
+- Extended the decode FSM enum with 9 control-flow states: S_JP_LO/S_JP_INC1/S_JP_HI/S_JP_INC2/S_PC_SET (JP nn: fetch low, inc PC, fetch high, inc PC, set PC) and S_JR_READ_F/S_JR_FETCH/S_JR_INC/S_JR_DO (JR: read flags for cc, fetch displacement, inc PC, set PC if taken else retire).
+- Added helpers: `is_jp`/`is_jr`/`is_jr_cc`, `jr_cc_of` (0x20→NZ,0x28→Z,0x30→NC,0x38→C), `cc_taken` (evaluates cc against F's Z/C bits), `sext8` (sign-extend the 8-bit JR displacement to 16-bit).
+- Wired S_DECODE to dispatch JP nn → S_JP_LO, JR e → S_JR_FETCH (jr_taken=1), JR cc,e → S_JR_READ_F (reads flags, resolves the condition into jr_taken).
+- The JP path is its own clean 5-state sequencer (gave JP dedicated S_JP_INC1/S_JP_INC2 states instead of reusing S_INC_OP, which was ambiguous — the first cut reused S_INC_OP and would have returned to S_DECODE wrongly).
+- Added 3 differential tests: 3E1 JP nn (LD A,1; JP 6; HALT skipped; LD A,2; HALT → A=0x02), 3E2 JR e (LD A,1; JR +2; HALT; HALT; LD A,2; HALT → A=0x02), 3E3 JR NZ not-taken (LD A,0; CP 0; JR NZ +2; LD A,1; HALT → A=0x01, Z set so not taken).
+- Confirmed Yosys synthesis (0 errors, ~4960 cells) and the full regression (mesh + 3A/3B/3C/3E + 49 model tests).
+
+### Why
+3E's exit (design doc §13) is "control" — the first instruction that changes control flow, proving the decode can set the PC object via the bus (PC_SET) and read flags for conditions. Doing control before 3D (16-bit) and 3F (stack) was a deliberate ordering: loops (JP/JR) unblock real programs and the assembler (Phase 4) sooner, and CALL/RET need the stack object (3F) which is a larger add. The relative JR displacement (sign-extended) is the one subtlety; the oracle confirmed the +2/+0 semantics.
+
+### What worked
+- Giving JP its own sequencer (no S_INC_OP reuse) made the control-flow unambiguous; the first cut that reused S_INC_OP compiled but would have mis-routed.
+- Reading flags from the flags object for JR cc reused the exact held-request pattern; `cc_taken` is a pure function the oracle's `CC` table informed.
+- The 3 differential tests cover taken-absolute (JP), taken-relative (JR), and not-taken-conditional (JR NZ) — the three control-flow dimensions.
+
+### What didn't work
+- **First JP cut reused S_INC_OP** ambiguously (S_INC_OP always returns to S_DECODE, so JP would have re-decoded instead of fetching the high byte). Caught by design review before sim; fixed with dedicated S_JP_INC1/S_JP_INC2.
+- **No new portability issues** — the locked subset (field-by-field struct assigns, z80_obj:: scoping, V2K function style, enum width) held.
+
+### What I learned
+- The decode FSM's pattern "fetch bytes with their own inc states, then a terminal commit state" generalizes cleanly to multi-byte instructions (JP's 3 bytes, JR's 2 bytes); 3F's CALL (3 bytes + 2 stack pushes) and RET (1 byte + 2 stack pops) will follow the same shape.
+- PC_SET as a bus sub-op covers both JP (absolute) and JR (pc_cur + sext8(e), relative) — the PC object doesn't need to know which; the decode computes the target. This keeps the PC object trivial and the policy in the control object (good object decomposition).
+
+### What was tricky to build
+- The JR displacement semantics. Symptom: the displacement is relative to the PC *after* the displacement byte (i.e. the next instruction's address), so JR e adds e to pc_cur which already points past the displacement. Resolution: S_JR_INC bumps pc_cur past the displacement, then S_JR_DO sets PC = pc_cur + sext8(e) if taken — matching the oracle (verified: JR +2 from the byte after the opcode skips 2 bytes). The not-taken path retires with pc_cur already past the displacement (no PC_SET).
+
+### What warrants a second pair of eyes
+- The `cc_taken` table (NZ/Z/NC/C → Z/C bit tests) — confirm against the oracle's `_cc` (matches; 3E3 covers NZ with Z set).
+- The JR sign extension (`sext8`: 0x80+ → 0xFFxx) — only tested forward (+2); a backward JR (negative displacement, a loop) should be added.
+- The `jp_addr` assembly order (low byte from the first fetch, high from the second, little-endian) — 3E1 covers it but a high-byte ≠ 0x00 test would be stronger.
+
+### What should be done in the future
+- 3F: add the stack object (obj_stack or reuse obj_memio with SP) and CALL/RET/RET cc; then PUSH/POP and RST.
+- 3D: 16-bit ADD HL,rr + INC/DEC rr + LD rr,nn (extend regfile to 16-bit pairs or compose H:L).
+- Add a backward-JR loop test (e.g. a DJNZ-style countdown) and a JP with a non-zero high byte.
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: Phase 3A/3B/3C/3E object graph (NOP/HALT + LD + ALU + JP/JR) matches oracle`.
+- `make test` — expect mesh PASS, 3A/3B/3C/3E PASS, 49 model tests passed.
+- Synthesize: `yosys -p 'read_verilog -defer -sv rtl/z80_obj.sv rtl/obj_pc.sv rtl/obj_memio.sv rtl/obj_regfile.sv rtl/obj_alu.sv rtl/obj_flags.sv rtl/obj_decode.sv rtl/z80_core.sv <top>; synth_gatemate -top <top> -luttree -nomx8'` — expect 0 errors.
+- Read `obj_decode.sv`'s S_JP_* and S_JR_* states and the `cc_taken`/`sext8` helpers.
+
+### Technical details
+- Files: `rtl/obj_decode.sv` (+9 control states, +5 helpers, S_DECODE dispatch), `sim/tb_z80_core.sv` (+3 control tests).
+- Oracle expected: 3E1 JP → A=0x02; 3E2 JR → A=0x02; 3E3 JR NZ not-taken → A=0x01. RTL matches all.
+- Synth (top_zc): 0 errors, ~4960 cells.
+- `make test`: mesh + 3A/3B/3C/3E + 49 model tests.
+- Skipped 3D (16-bit) to do 3E (control) first; 3D/3F remain.
+- Slips: 3C done (Step 9). 3E milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
