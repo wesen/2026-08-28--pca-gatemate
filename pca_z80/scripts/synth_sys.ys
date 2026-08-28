@@ -1,0 +1,7 @@
+# synth_sys.ys — Yosys synthesis script for PCA-Z80 (Phase 0 placeholder top).
+# Mirrors the sibling MATE-16 synth flow (synth_gatemate -luttree -nomx8).
+# Replaced with the full PCA cell + object graph read list in Phase 1+.
+read_verilog -defer -sv rtl/reset_sync.sv rtl/top.sv
+synth_gatemate -top top -luttree -nomx8
+stat
+write_json build/top.json

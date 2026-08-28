@@ -1,0 +1,8 @@
+# openFPGALoader udev rules — DirtyJTAG bridge on the Olimex GateMateA1-EVB.
+# Source: https://github.com/trabucayre/openFPGALoader/blob/master/99-openfpgaloader.rules
+# Fixes the §1.4.1 USB permission issue: without this, the DirtyJTAG device
+# node (1209:c0ca) is root:root and openFPGALoader fails with
+# "DirtyJtag: fails to open device".
+
+# dirtyJTAG
+ATTRS{idVendor}=="1209", ATTRS{idProduct}=="c0ca", MODE="664", GROUP="plugdev", TAG+="uaccess"

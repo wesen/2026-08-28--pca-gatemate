@@ -23,12 +23,12 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 ### Phase 0 — Ticket, repo, and tooling bootstrap
 - [x] Create docmgr ticket `PCA-Z80-GATEMATE` with design doc + diary  *(done this session)*
 - [x] Gather + study PCA literature; write `sources/SOURCES.md`  *(done this session)*
-- [ ] Install OSS CAD Suite toolchain (reuse `~/fpga/oss-cad-suite/` from sibling project; source `environment`, verify 7 tools)
-- [ ] `pca_z80/` project skeleton (rtl/tools/programs/sim/constraints/scripts/build)
-- [ ] `.gitignore` (build/*, *.vcd, *.fst, *.log, __pycache__/, .pytest_cache/)
-- [ ] `Makefile` stub incl. `versions` target
-- [ ] `make versions` → `build/tool-versions.txt`
-- [ ] Exit: toolchain verified; skeleton synthesizes an empty top
+- [x] Install OSS CAD Suite toolchain (reuse `~/fpga/oss-cad-suite/` from sibling project; source `environment`, verify 7 tools)  *(verified: Yosys 0.68, nextpnr 0.11.1, iverilog 14, verilator 5.051, gmpack, openFPGALoader 1.1.1, py3.11.6)*
+- [x] `pca_z80/` project skeleton (rtl/tools/programs/sim/constraints/scripts/build)  *(done)*
+- [x] `.gitignore` (build/*, *.vcd, *.fst, *.log, __pycache__/, .pytest_cache/)  *(done)*
+- [x] `Makefile` stub incl. `versions` target  *(done; full targets versions/test/sim/synth/pnr/bit/load/clean)*
+- [x] `make versions` → `build/tool-versions.txt`  *(done)*
+- [x] Exit: toolchain verified; skeleton synthesizes an empty top  *(PASS: sim self-test + synth/pnr/bit produces build/top.bit)*
 
 ### Phase 1 — PCA cell substrate (paper 01 §2, paper 05)
 - [ ] `pca_z80/rtl/pca_cell.sv` — plastic part LUT-RAM + built-in part FSM (§9.1)

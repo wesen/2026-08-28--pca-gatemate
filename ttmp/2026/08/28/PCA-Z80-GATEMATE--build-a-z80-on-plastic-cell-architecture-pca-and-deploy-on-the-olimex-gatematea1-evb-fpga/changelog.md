@@ -31,3 +31,12 @@ Step 3: fixed source-file placement (real PDFs 01/02b/05 + deck 06 moved root->s
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/reference/01-investigation-diary.md — Diary Step 3 records the placement fix, commit, and reMarkable upload
 
+
+## 2026-08-28
+
+Step 4 / Phase 0: built pca_z80/ skeleton + verified the OSS CAD flow end-to-end. Makefile (versions/test/sim/synth/pnr/bit/load), constraints (verified pins reused from MATE-16), reset_sync + placeholder counter-LED top, sim CC_USR_RSTN model + tb_top. make versions recorded toolchain (Yosys 0.68, nextpnr 0.11.1, iverilog 14, verilator 5.051, openFPGALoader 1.1.1, py3.11.6); make sim PASS; make bit -> build/top.bit (181 bytes). Printed brutalist PLAN slip (7 phases) + P0 START slip.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/Makefile — Phase 0 build flow (versions/test/sim/synth/pnr/bit/load)
+

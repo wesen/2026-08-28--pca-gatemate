@@ -18,20 +18,26 @@ DocType: index
 Intent: long-term
 Owners: []
 RelatedFiles:
+    - Path: /home/manuel/code/wesen/2026-08-25--vm-cpu-gatemate/README.md
+      Note: Sibling MATE-16 project — toolchain, board pins, conventions reused here
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/sources/SOURCES.md
       Note: Evidence-anchored index of the collected PCA primary sources
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/01-pca-z80-system-intern-onboarding-guide.md
       Note: The intern onboarding guide (the main deliverable)
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/reference/01-investigation-diary.md
       Note: The chronological investigation diary
-    - Path: /home/manuel/code/wesen/2026-08-25--vm-cpu-gatemate/README.md
-      Note: Sibling MATE-16 project — toolchain, board pins, conventions reused here
+    - Path: repo://pca_z80/Makefile
+      Note: Phase 0 build flow driver
+    - Path: repo://pca_z80/rtl/top.sv
+      Note: Phase 0 placeholder top (counter-LED, proven flow)
 ExternalSources: []
 Summary: Build a Z80 microprocessor as a graph of wired-logic objects on Plastic Cell Architecture (PCA) and deploy it on the Olimex GateMateA1-EVB FPGA, reusing the sibling MATE-16 toolchain and verification methodology.
 LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
+
 
 # Build a Z80 on Plastic Cell Architecture (PCA) and deploy on the Olimex GateMateA1-EVB FPGA
 

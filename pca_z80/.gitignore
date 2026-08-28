@@ -1,0 +1,17 @@
+# PCA-Z80 build artifacts
+build/
+*.vcd
+*.fst
+*.fst.h
+*.vvp
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor
+*.swp
+*~
+.DS_Store

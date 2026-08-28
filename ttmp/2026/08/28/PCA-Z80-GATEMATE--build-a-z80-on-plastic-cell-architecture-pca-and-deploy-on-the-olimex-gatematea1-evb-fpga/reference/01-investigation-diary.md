@@ -244,6 +244,71 @@ This step corrected a file-placement bug found by `docmgr doctor`, committed the
 - Device listing: `[f] PCA-Z80 System Intern Onboarding Guide` at `/ai/2026/08/28/PCA-Z80-GATEMATE`.
 - Commits: `ddf251f` (research+scaffold), `929a738` (design+fix).
 
+## Step 4: Build Phase 0 — repo skeleton + toolchain bootstrap
+
+This step turned the design into running hardware plumbing. It scaffolded the `pca_z80/` repo (Makefile, constraints, RTL, sim, scripts), reused the sibling MATE-16's verified board pins and reset primitive, wrote a minimal synthesizable placeholder top (a counter-driven LED, the way the sibling proved its flow), and ran the full open-source flow end-to-end: `make versions` recorded the OSS CAD Suite versions, `make sim` passed its self-test, and `make bit` (Yosys synth → nextpnr PnR → gmpack) produced a GateMate bitstream. No PCA or Z80 RTL yet — that is Phase 1. This is the Phase 0 exit criterion: a clean checkout synthesizes and the toolchain is pinned.
+
+### Prompt Context
+
+**User prompt (verbatim):** "build it, commit at appropriate intervals and keep a detailed diary as you work (using the diary format from the skill), Print out a brutalist work slip with the plan / different phases for the ticket. then before stsarting a phase, plrint a split about the phase, and print one when the phase is done."
+
+**Assistant interpretation:** Implement the PCA-Z80 system phase by phase per the design doc, committing at intervals and keeping a detailed diary; print a brutalist plan slip listing all phases up front, a phase-start slip before each phase, and a phase-done slip when each phase completes.
+
+**Inferred user intent:** Move from design to a real, committed, hardware-proven build, with physical thermal-printer slips tracking phase progress so the work is legible at a glance.
+
+**Commit (code/docs):** (this step) Phase 0 skeleton + verified flow.
+
+### What I did
+- Printed the brutalist **PLAN slip** (7 phases P0–P6) on the AtomS3R thermal printer after a `--dry-run-remote` validation; printer service healthy (`{"ok":true,...}`).
+- Printed the **P0 START** slip (plan mode: skeleton / .gitignore+Makefile / make versions / empty-top synthesizes).
+- Confirmed the OSS CAD Suite (`~/fpga/oss-cad-suite`, release `20260825`) is installed: Yosys 0.68+130, nextpnr-himbaechel 0.11.1, iverilog 14.0, Verilator 5.051, gmpack, openFPGALoader v1.1.1, Python 3.11.6.
+- Created `pca_z80/` with dirs `constraints/ rtl/ sim/ tools/ programs/ scripts/ build/`.
+- Wrote `Makefile` (targets: `versions test sim synth pnr bit load clean`) modeled on the sibling's, with `synth_gatemate -luttree -nomx8`, nextpnr `--device CCGM1A1 --router router2`, gmpack, `openFPGALoader -b olimex_gatemateevb`.
+- Wrote `constraints/olimex_gatematea1_evb.ccf` (reusing the verified pins: clk `IO_SB_A8`, led `IO_SB_B6`, button `IO_SB_B7`, uart tx `IO_SA_B6` / rx `IO_SA_A6`), `constraints/top.sdc` (`create_clock -period 100.000`), and copied the `99-openfpgaloader.rules` udev rule.
+- Wrote `rtl/reset_sync.sv` (async-assert/sync-release, reused from MATE-16) and `rtl/top.sv` — a Phase 0 placeholder: `CC_USR_RSTN` → `reset_sync` → 24-bit counter → `user_led = counter[LED_BIT]`, with `uart_tx_pin` held idle-high (UART added in Phase 5).
+- Wrote `sim/CC_USR_RSTN.sv` (sim-only model: low then high at 250 ns) and `sim/tb_top.sv` (checks reset deassertion, counter increments by exactly 1/edge, LED toggles).
+- Wrote `scripts/synth_sys.ys` (Yosys script) and a per-project `.gitignore` + `README.md`.
+- Ran the flow: `make versions` → `build/tool-versions.txt`; `make sim` → `PASS: Phase 0 top self-test` (counter=25 at 2.95 ms); `make bit` → `build/top.bit` (181 bytes; placed GPIO banks W1/W2 for clk+LED).
+
+### Why
+Phase 0's exit criterion (design doc §13) is "toolchain verified; skeleton synthesizes an empty top." Proving the full open-source flow on a trivial design first isolates toolchain/constraint/pin problems from logic problems — the sibling MATE-16 hit its two worst bugs (spurious ROM ready, doubled UART byte) *after* the flow worked, so establishing the flow here is the cheap insurance. Pin reuse avoids re-verifying the board; the reset primitive and async-assert/sync-release pattern are load-bearing for every later object.
+
+### What worked
+- One `make bit` ran the entire pipeline (synth → pnr → pack) and produced a bitstream in seconds; the GateMate placed the clk on `IO_SB_A8` and the LED on `IO_SB_B6` exactly as constrained.
+- The sim self-test asserted the precise invariant (counter +1 per edge after reset), not just "LED moved," so the placeholder actually validates the reset/clock plumbing.
+- The brutalist plan + P0-start slips printed cleanly on the first try (dry-run first, then real).
+
+### What didn't work
+- Nothing failed. Minor friction: a relative `cp ../2026-08-25--...` failed (the sibling lives at a sibling path, not a child); fixed by using absolute paths — a reminder to use absolute paths across workspaces.
+
+### What I learned
+- The `synth_gatemate -luttree -nomx8` / nextpnr / gmpack flow is identical to the sibling's, so the Makefile and constraints transferred with only naming changes.
+- The 181-byte bitstream for a 7-cell counter confirms GateMate bitstreams are small for tiny designs; the real PCA mesh will be far larger but the *flow* is already proven.
+- `nextpnr` reported "No Fmax available; no interior timing paths" for the bare counter — expected, since the only register-to-register path is the counter carry; timing closure becomes meaningful in Phase 1 with the PCA cells.
+
+### What was tricky to build
+- Keeping the placeholder *useful* rather than just "empty." An empty top synthesizes but proves nothing about pins or reset. Symptom: a trivially-empty top would pass synth and fail on the board with no diagnostic. Resolution: the counter-driven-LED placeholder (the sibling's blink pattern) makes the flow's result *observable* in sim (counter+1/edge) and on the board (blinking LED), so a flow or pin bug shows up immediately rather than in Phase 6.
+
+### What warrants a second pair of eyes
+- The `top.sv` instantiates `CC_USR_RSTN cc_rstn ()` with no explicit port connection — confirm Yosys's `synth_gatemate` binds the primitive's `USR_RSTN` output correctly (it did: sim + synth both passed), and that sim's `CC_USR_RSTN.sv` model matches the primitive's polarity (low-then-high).
+- The pin map is copied from the sibling; trust but verify against `sources/board/gatemate-pin-reference.md` before any Phase 6 hardware load if pins ever change.
+
+### What should be done in the future
+- Phase 1: write `pca_cell.sv` (plastic part LUT-RAM + built-in part FSM), `pca_router.sv` (5-port exact routing, held-request/ack), `pca_mesh.sv` (R×C array), with directed tests and the held-request anti-double assertion under random stalls.
+- Keep the Phase 0 placeholder top as a regression baseline (it should keep passing as infrastructure is added).
+
+### Code review instructions
+- `cd pca_z80 && source ~/fpga/oss-cad-suite/environment && make versions && make sim && make bit` — expect `PASS: Phase 0 top self-test` and `build/top.bit`.
+- `git show --stat <this-commit>` — expect the skeleton files plus the placeholder top.
+- Read `rtl/top.sv`: the counter is the only logic; `uart_tx_pin` is idle-high.
+
+### Technical details
+- Toolchain (recorded in `build/tool-versions.txt`): OSS CAD Suite `20260825`, Yosys `0.68+130`, nextpnr-himbaechel `0.11.1-9-gb17408e2`, iverilog `14.0`, Verilator `5.051`, openFPGALoader `v1.1.1`, Python `3.11.6`.
+- Sim: `PASS: Phase 0 top self-test`, `counter=25` at 2950000 (1ps), VCD at `build/top.vcd`.
+- Synth: 7 cells, 38 wire bits, 5 ports (yosys stat).
+- PnR: placed; GPIO banks W1/W2 used; bitstream `build/top.bit` = 181 bytes.
+- Slips printed: PLAN (7 phases), P0 START (plan mode).
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
