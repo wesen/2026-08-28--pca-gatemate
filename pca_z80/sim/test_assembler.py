@@ -107,6 +107,15 @@ def test_cb():
             assert asm_bytes("RES %d,%s" % (b, r)) == bytes([0xCB, 0x80 | (b << 3) | r_i])
             assert asm_bytes("SET %d,%s" % (b, r)) == bytes([0xCB, 0xC0 | (b << 3) | r_i])
 
+def test_ix_iy():
+    assert asm_bytes("LD IX,0x1234") == bytes([0xDD, 0x21, 0x34, 0x12])
+    assert asm_bytes("LD IY,0xABCD") == bytes([0xFD, 0x21, 0xCD, 0xAB])
+    assert asm_bytes("INC IX") == bytes([0xDD, 0x23])
+    assert asm_bytes("INC IY") == bytes([0xFD, 0x23])
+    assert asm_bytes("DEC IX") == bytes([0xDD, 0x2B])
+    assert asm_bytes("LD A,(IX+2)") == bytes([0xDD, 0x7E, 0x02])
+    assert asm_bytes("LD A,(IY+5)") == bytes([0xFD, 0x7E, 0x05])
+
 # ---- cross-check: assemble -> model run -> state matches ----
 def test_cross_check_alu_loop():
     prog = """

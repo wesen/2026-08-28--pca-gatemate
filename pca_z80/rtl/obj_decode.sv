@@ -56,6 +56,8 @@ module obj_decode (
         S_CB_FETCH, S_CB_INC,
         S_CB_READ_R, S_CB_READ_F, S_CB_ALU, S_CB_WRITE_R, S_CB_WRITE_F,
         S_CB_BIT_WRITE_F, S_CB_SR_WRITE_R,
+        S_PREFIX_FETCH, S_PREFIX_INC, S_PREFIX_DECODE,
+        S_LDIXD_FETCH_D, S_LDIXD_INC, S_LDIXD_READ_IDX, S_LDIXD_MEMRD, S_LDIXD_WRITE_A,
         S_HALT, S_FAULT
     } state_e;
     state_e state;
@@ -90,6 +92,7 @@ module obj_decode (
     logic [15:0] pair_val;   // 16-bit pair read/write value (3D)
     logic [15:0] add16_res;  // 16-bit ADD HL,rr result (3D)
     logic [7:0]  cb_sub;    // CB-prefixed sub-opcode (3D.6)
+    logic [1:0]  idx_sel;   // DD/FD prefix: 0=HL, 1=IX, 2=IY (3D.7)
 
     assign dbg_ir     = ir;
     assign dbg_pc_val = pc_val;
@@ -237,6 +240,18 @@ module obj_decode (
     function automatic logic [3:0] pair_idx_of(input logic [1:0] rp);
         pair_idx_of = 4'd9 + {2'b00, rp};   // 9,10,11 for rp 0,1,2
     endfunction
+    // Like pair_idx_of but rp 2 (HL) redirects to IX(13)/IY(14) when idx_sel set.
+    function automatic logic [3:0] idx_pair_idx(input logic [1:0] rp);
+        if (rp == 2'd2) begin
+            case (idx_sel)
+                2'd1: idx_pair_idx = 4'd13;  // IX
+                2'd2: idx_pair_idx = 4'd14;  // IY
+                default: idx_pair_idx = 4'd11;  // HL
+            endcase
+        end else begin
+            idx_pair_idx = 4'd9 + {2'b00, rp};
+        end
+    endfunction
     // push/pop reg-pair index: 0=BC,1=DE,2=HL,3=AF (matches RP_PUSH table)
     function automatic logic [1:0] pp_idx(input logic [7:0] o);
         pp_idx = (o >> 4) & 8'h03;
@@ -299,6 +314,7 @@ module obj_decode (
             pair_val  <= 16'h0000;
             add16_res <= 16'h0000;
             cb_sub   <= 8'h00;
+            idx_sel  <= 2'd0;
             pp        <= 2'd0;
             bus_req  <= '0;
         end else begin
@@ -311,6 +327,7 @@ module obj_decode (
                     end else if (bus_resp.ack) begin
                         pc_val      <= bus_resp.rdata;
                         pc_cur      <= bus_resp.rdata;
+                        idx_sel    <= 2'd0;   // clear DD/FD prefix for this instruction
                         bus_req.req <= 1'b0;
                         state       <= S_FETCH_OP;
                     end
@@ -433,6 +450,10 @@ module obj_decode (
                     end else if (is_cb(ir)) begin
                         // CB-prefixed: fetch the sub-opcode next
                         state <= S_CB_FETCH;
+                    end else if (ir == 8'hDD || ir == 8'hFD) begin
+                        // DD/FD prefix: IX/IY — fetch the real opcode next (3D.7)
+                        idx_sel <= (ir == 8'hDD) ? 2'd1 : 2'd2;
+                        state   <= S_PREFIX_FETCH;
                     end else begin
                         faulted <= 1'b1;
                         state   <= S_FAULT;
@@ -1073,7 +1094,7 @@ module obj_decode (
                         if (r_src[1:0] == 2'd3) begin
                             bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_SET; bus_req.wdata <= pair_val;
                         end else begin
-                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= pair_val;
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, idx_pair_idx(r_src[1:0])}; bus_req.wdata <= pair_val;
                         end
                     end else if (bus_resp.ack) begin
                         count       <= count + 32'd1;
@@ -1088,7 +1109,7 @@ module obj_decode (
                         if (r_src[1:0] == 2'd3) begin
                             bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
                         end else begin
-                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= 16'h0000;
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, idx_pair_idx(r_src[1:0])}; bus_req.wdata <= 16'h0000;
                         end
                     end else if (bus_resp.ack) begin
                         pair_val    <= (bus_resp.rdata + 16'h0001) & 16'hFFFF;
@@ -1102,7 +1123,7 @@ module obj_decode (
                         if (r_src[1:0] == 2'd3) begin
                             bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_SET; bus_req.wdata <= pair_val;
                         end else begin
-                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= pair_val;
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, idx_pair_idx(r_src[1:0])}; bus_req.wdata <= pair_val;
                         end
                     end else if (bus_resp.ack) begin
                         count       <= count + 32'd1;
@@ -1117,7 +1138,7 @@ module obj_decode (
                         if (r_src[1:0] == 2'd3) begin
                             bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
                         end else begin
-                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= 16'h0000;
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, idx_pair_idx(r_src[1:0])}; bus_req.wdata <= 16'h0000;
                         end
                     end else if (bus_resp.ack) begin
                         pair_val    <= (bus_resp.rdata - 16'h0001) & 16'hFFFF;
@@ -1131,7 +1152,7 @@ module obj_decode (
                         if (r_src[1:0] == 2'd3) begin
                             bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_SET; bus_req.wdata <= pair_val;
                         end else begin
-                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= pair_val;
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, idx_pair_idx(r_src[1:0])}; bus_req.wdata <= pair_val;
                         end
                     end else if (bus_resp.ack) begin
                         count       <= count + 32'd1;
@@ -1157,7 +1178,7 @@ module obj_decode (
                         if (r_src[1:0] == 2'd3) begin
                             bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
                         end else begin
-                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= 16'h0000;
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, idx_pair_idx(r_src[1:0])}; bus_req.wdata <= 16'h0000;
                         end
                     end else if (bus_resp.ack) begin
                         // 16-bit add: pair_val (HL) + rdata (rr). flags H/C/N only.
@@ -1468,6 +1489,104 @@ module obj_decode (
                         bus_req.wdata <= {8'h00, cb_sr_result()};
                     end else if (bus_resp.ack) begin
                         count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ===================== 3D.7: DD/FD (IX/IY) prefix =====================
+                // ---- fetch the real opcode after the DD/FD prefix ----
+                S_PREFIX_FETCH: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        ir         <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_PREFIX_INC;
+                    end
+                end
+                S_PREFIX_INC: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_PREFIX_DECODE;
+                    end
+                end
+                // ---- dispatch the prefixed opcode (idx_sel active) ----
+                S_PREFIX_DECODE: begin
+                    if (ir == 8'h21) begin
+                        // LD rr,nn  (rr=HL -> IX/IY via idx_pair_idx)
+                        r_src <= {2'b00, rp_of(ir)};  // rp=2
+                        state <= S_LDRR_LO;
+                    end else if (ir == 8'h23) begin
+                        // INC rr (rr=HL -> IX/IY)
+                        r_src <= {2'b00, rp_of(ir)};
+                        state <= S_INCRR_READ;
+                    end else if (ir == 8'h2B) begin
+                        // DEC rr (rr=HL -> IX/IY)
+                        r_src <= {2'b00, rp_of(ir)};
+                        state <= S_DECRR_READ;
+                    end else if (ir == 8'h7E) begin
+                        // LD A,(HL) -> LD A,(IX+d): fetch displacement d
+                        state <= S_LDIXD_FETCH_D;
+                    end else begin
+                        faulted <= 1'b1;
+                        state   <= S_FAULT;
+                    end
+                end
+                // ---- LD A,(IX+d): fetch d, inc PC, read IX, compute IX+d, MEM read, write A ----
+                S_LDIXD_FETCH_D: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        alu_b     <= bus_resp.rdata[7:0];  // displacement d (sign-extend at use)
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDIXD_INC;
+                    end
+                end
+                S_LDIXD_INC: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDIXD_READ_IDX;
+                    end
+                end
+                S_LDIXD_READ_IDX: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= (idx_sel == 2'd1) ? 16'h000D : 16'h000E;  // IX=13 / IY=14
+                        bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        // addr = IX/IY + sext8(d)
+                        pair_val   <= (bus_resp.rdata + sext8(alu_b)) & 16'hFFFF;
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDIXD_MEMRD;
+                    end
+                end
+                S_LDIXD_MEMRD: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pair_val; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        alu_result <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDIXD_WRITE_A;
+                    end
+                end
+                S_LDIXD_WRITE_A: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= 16'h0007; bus_req.wdata <= {8'h00, alu_result};
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        idx_sel    <= 2'd0;   // clear prefix for next instruction
                         bus_req.req <= 1'b0;
                         state       <= S_FETCH_PC;
                     end

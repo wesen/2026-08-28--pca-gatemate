@@ -264,9 +264,38 @@ module tb_z80_core;
         if (dut.u_regfile.dbg_a !== 8'hFE) begin $display("FAIL 3D6e: A=%h (oracle 0xFE)", dut.u_regfile.dbg_a); errors=errors+1; end
         if (errors==0) $display("3D6e: RES 0,A (0xFF->0xFE) matches oracle");
 
+        // ---- 3D.7: DD/FD (IX/IY) prefix: LD IX,0x1234 ----
+        errors = 0;
+        run_prog(8'hDD, 8'h21, 8'h34, 8'h12, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD IX,0x1234; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_ix !== 16'h1234) begin $display("FAIL 3D7a: IX=%h (oracle 0x1234)", dut.u_regfile.dbg_ix); errors=errors+1; end
+        if (errors==0) $display("3D7a: LD IX,0x1234 matches oracle");
+
+        // ---- 3D.7: LD IX,0x1234; INC IX -> 0x1235 ----
+        errors = 0;
+        run_prog(8'hDD, 8'h21, 8'h34, 8'h12, 8'hDD, 8'h23, 8'h76, 8'h00, 7);  // LD IX,0x1234; INC IX; HALT
+        repeat(300) @(posedge clk);
+        if (dut.u_regfile.dbg_ix !== 16'h1235) begin $display("FAIL 3D7b: IX=%h (oracle 0x1235)", dut.u_regfile.dbg_ix); errors=errors+1; end
+        if (errors==0) $display("3D7b: INC IX matches oracle (IX=0x1235)");
+
+        // ---- 3D.7: LD A,(IX+2) (LD IX,0x0100; LD A,(IX+2); ram[2]=0xAB) ----
+        errors = 0;
+        dut.u_memio.ram[8'h02] = 8'hAB;   // addr 0x0102 -> ram index 0x02
+        run_prog(8'hDD, 8'h21, 8'h00, 8'h01, 8'hDD, 8'h7E, 8'h02, 8'h76, 8);  // LD IX,0x0100; LD A,(IX+2); HALT
+        repeat(300) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'hAB) begin $display("FAIL 3D7c: A=%h (oracle 0xAB)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (errors==0) $display("3D7c: LD A,(IX+2) matches oracle (A=0xAB)");
+
+        // ---- 3D.7: LD IY,0xABCD (FD prefix) ----
+        errors = 0;
+        run_prog(8'hFD, 8'h21, 8'hCD, 8'hAB, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD IY,0xABCD; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_iy !== 16'hABCD) begin $display("FAIL 3D7d: IY=%h (oracle 0xABCD)", dut.u_regfile.dbg_iy); errors=errors+1; end
+        if (errors==0) $display("3D7d: LD IY,0xABCD matches oracle");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A-3F/3F5/3D/3D5/3D6 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC/16-bit/mem-LD/CB-shifts-bits) matches oracle");
+            $display("PASS: Phase 3A-3F/3F5/3D/3D5/3D6/3D7 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC/16-bit/mem-LD/CB/IX-IY) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;

@@ -175,3 +175,12 @@ Step 19: wrote the engineering report (design-doc 02, design-doc §4.20) summari
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/02-pca-z80-engineering-report.md — Engineering report (Phase 6 §4.20 deliverable)
 
+
+## 2026-08-28
+
+Step 20 / Phase 3D.7: added DD/FD (IX/IY) prefix subset (LD IX,nn / INC-DEC IX / LD A,(IX+d)). regfile +IX/IY pair idx 13/14 (+dbg_ix/dbg_iy). decode +idx_sel + idx_pair_idx (HL->IX/IY redirect) + prefix-accumulator (PREFIX_FETCH/INC/DECODE) + LD A,(IX+d) path (fetch d, IX+d, MEM read). 16-bit states reuse idx_pair_idx (no new states for LD/INC-DEC IX). zasm +DD/FD + size_of INC IX=2. 4 diff tests PASS (LD IX,1234; INC IX; LD A,(IX+2) A=0xAB; LD IY,ABCD) + 7 golden vectors. Synth clean. make test = mesh + object graph (IX/IY) + 49 model + 20 asm + 6 integ. Last listed Phase 3 item done (full DD/FD substitution + ED prefix deferred).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_regfile.sv — Z80 register file (8-bit + 16-bit pairs BC/DE/HL/AF + IX/IY)
+

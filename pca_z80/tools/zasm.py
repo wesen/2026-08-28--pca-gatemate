@@ -61,10 +61,15 @@ def size_of(op, operands_list):
     operands = split_operands(operands_list)
     o = op.upper()
     if o in ("NOP","HALT","RET","EXX","DI","EI","RLCA","RRCA","RLA","RRA"): return 1
+    # DD/FD-prefixed ops are 2 (prefix+op) + any immediates; LD IX,nn=4, INC IX=2, LD A,(IX+d)=3
+    if o in ("LD",) and len(operands) >= 1 and operands[0].strip().upper() in ("IX","IY"): return 4 if len(operands) >= 2 else 1
+    if operands and operands[0].strip().upper().startswith("(IX+") or operands[0].strip().upper().startswith("(IY+"): return 3
     CB_SHIFT = {"RLC","RRC","RL","RR","SLA","SRA","SLL","SRL"}
     if o in CB_SHIFT or o in ("BIT","RES","SET"): return 2   # 0xCB + sub-op
     if o in ("INC","DEC"):
-        # INC r / DEC r = 1 byte (r in R8); INC rr / INC IX = handled below if not a single reg
+        r = operands[0].strip().upper() if operands else ""
+        if r in ("IX","IY"): return 2   # DD/FD prefix + op (3D.7)
+        # INC r / DEC r = 1 byte (r in R8); INC rr = 1 byte
         return 1
     if o == "LD":
         a, b = operands
@@ -109,6 +114,25 @@ def encode(op, operands_list, addr, symtab, pass2):
     if o == "RLA":  return [0x17]
     if o == "RRA":  return [0x1F]
     if o == "EXX":  return [0xD9]
+    # DD/FD (IX/IY) prefix subset (3D.7)
+    if o == "LD":
+        a, b = (operands + [""])[:2]
+        au, bu = a.strip().upper(), b.strip().upper()
+        if au == "IX" and bu not in ("",) and not bu.startswith("("):
+            nn = parse_imm(b, symtab, pass2) & 0xFFFF
+            return [0xDD, 0x21, nn & 0xFF, (nn>>8) & 0xFF]
+        if au == "IY" and not bu.startswith("("):
+            nn = parse_imm(b, symtab, pass2) & 0xFFFF
+            return [0xFD, 0x21, nn & 0xFF, (nn>>8) & 0xFF]
+        # LD A,(IX+d) / LD A,(IY+d)
+        if au == "A" and (bu.startswith("(IX") or bu.startswith("(IY")):
+            pre = 0xDD if bu.startswith("(IX") else 0xFD
+            d = parse_imm(bu[bu.find("+")+1:bu.find(")")], symtab, pass2)
+            return [pre, 0x7E, d & 0xFF]
+    if o == "INC" and operands and operands[0].strip().upper() == "IX": return [0xDD, 0x23]
+    if o == "INC" and operands and operands[0].strip().upper() == "IY": return [0xFD, 0x23]
+    if o == "DEC" and operands and operands[0].strip().upper() == "IX": return [0xDD, 0x2B]
+    if o == "DEC" and operands and operands[0].strip().upper() == "IY": return [0xFD, 0x2B]
     CB_SHIFT = {"RLC":0,"RRC":1,"RL":2,"RR":3,"SLA":4,"SRA":5,"SLL":6,"SRL":7}
     R8N = ["B","C","D","E","H","L","(HL)","A"]
     if o in CB_SHIFT:

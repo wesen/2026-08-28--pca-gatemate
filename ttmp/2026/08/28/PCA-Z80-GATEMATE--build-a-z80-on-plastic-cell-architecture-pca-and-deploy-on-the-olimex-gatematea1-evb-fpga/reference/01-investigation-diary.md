@@ -1285,6 +1285,65 @@ The CB prefix is the self-contained bit-manipulation family (shifts + bit test/s
 
 This step wrote the engineering report (design-doc 02, design-doc §4.20) summarizing the whole build — architecture (PCA substrate + Z80 object graph), the implemented ISA, the software (model/assembler/harness), the verification pyramid, the FPGA implementation (6026 LUTs 15%, 51.4 MHz 5× margin, 220 KB bitstream), the sim-verified LED blink, the limitations (no DD/FD/ED prefixes, memory-mapped GPIO, mesh not wired to Z80, board load pending), reproducibility, a bug diary, and the conclusion. The report is a concrete deliverable for review/handoff. (reMarkable upload to follow.)
 
+## Step 20: Build Phase 3 — milestone 3D.7 (DD/FD IX/IY prefix: LD IX,nn / INC IX / DEC IX / LD A,(IX+d))
+
+This step added the DD/FD (IX/IY) prefix — the last explicitly-listed Phase 3 item — via a prefix-accumulator: when the opcode is 0xDD (IX) or 0xFD (IY), the decode sets idx_sel and fetches the next byte as the real opcode, then dispatches with HL→IX/IY substitution. Four differential tests pass against the oracle: LD IX,0x1234, INC IX (0x1234→0x1235), LD A,(IX+2) (A=0xAB from RAM), LD IY,0xABCD. IX/IY are stored in the regfile as 16-bit pair indices 13/14 (extending the 3F pair access), and the 16-bit states use `idx_pair_idx` which redirects rp 2 (HL) to IX(13)/IY(14) when idx_sel is set — so LD IX,nn/INC IX/DEC IX reuse the existing 16-bit states unchanged. The (IX+d) memory form fetches a signed displacement, computes IX+d, and does a MEM read. The assembler gained the DD/FD mnemonics. This is a focused subset (the full DD/FD substitution across all HL ops is a larger refactor); it proves the prefix machinery and the (IX+d) form. Synth clean; full regression green (49 model + 20 assembler + 6 integration).
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Add 3D.7 — the DD/FD (IX/IY) prefix, the last item explicitly listed in the goal's "16-bit + IX/IY", scoped to a testable subset (LD IX,nn / INC/DEC IX / LD A,(IX+d)), differential-tested against the oracle.
+
+**Inferred user intent:** A Z80 with the IX/IY index registers and the (IX+d) addressing mode — the listed IX/IY scope — proving the prefix machinery.
+
+**Commit (code/docs):** (this step) Phase 3D.7 IX/IY prefix.
+
+### What I did
+- Extended `obj_regfile.sv` with IX/IY as 16-bit pair indices 13/14 (rd_of/write cases + dbg_ix/dbg_iy outputs), reusing the 3F pair-access mechanism.
+- Added `idx_sel` (0=HL, 1=IX, 2=IY) and `idx_pair_idx(rp)` (redirects rp 2 to IX(13)/IY(14) when idx_sel set) to `obj_decode.sv`; switched the 16-bit states' `pair_idx_of` → `idx_pair_idx` so LD IX,nn/INC/DEC IX target IX without new states.
+- Added the prefix-accumulator: S_PREFIX_FETCH (fetch real opcode) → S_PREFIX_INC (inc PC) → S_PREFIX_DECODE (dispatch the subset: 0x21 LD rr,nn, 0x23 INC rr, 0x2B DEC rr, 0x7E LD A,(IX+d)). idx_sel cleared at S_FETCH_PC.
+- Added the LD A,(IX+d) path: S_LDIXD_FETCH_D (fetch signed d) → S_LDIXD_INC → S_LDIXD_READ_IDX (read IX/IY, compute IX+d via sext8) → S_LDIXD_MEMRD → S_LDIXD_WRITE_A.
+- Added DD/FD to zasm.py (LD IX,nn / LD IY,nn = DD/FD 21 lo hi; INC/DEC IX/IY = DD/FD 23/2B; LD A,(IX+d) = DD/FD 7E d) + size_of fix (INC IX = 2 bytes).
+- Added 4 differential tests (LD IX,0x1234; INC IX 0x1234→0x1235; LD A,(IX+2) A=0xAB from RAM[2]; LD IY,0xABCD) + 7 IX/IY golden vectors.
+- Confirmed synthesis (0 errors) and the full regression.
+
+### Why
+IX/IY is the last item in the goal's "16-bit + IX/IY." The DD/FD prefix is the Z80's prefix-accumulator pattern (the same machinery the ED prefix and the full DD/FD substitution use), so a working subset proves the mechanism and unblocks the rest. Storing IX/IY in the regfile (not a new object) and reusing the 16-bit states via `idx_pair_idx` kept the add small (no new 16-bit states for LD/INC/DEC IX; only the (IX+d) memory form needed new states).
+
+### What worked
+- The `idx_pair_idx` indirection meant LD IX,nn/INC IX/DEC IX reuse the existing 16-bit states unchanged — only the prefix-accumulator + the (IX+d) path were new.
+- The (IX+d) computation (`IX + sext8(d)`) reused the JR `sext8` helper.
+- The prefix cleared at S_FETCH_PC so it never leaks across instructions.
+
+### What didn't work
+- **size_of INC returned 1 unconditionally** → INC IX (2 bytes) overflowed its 1-byte slot → "bytearray index out of range"; fixed size_of INC to return 2 for IX/IY.
+- The usual enum-width (already 7 bits) and iverilog portability held; no new issues.
+
+### What I learned
+- The DD/FD prefix is a prefix-accumulator + HL→IX/IY substitution; the subset (LD/INC/DEC IX + LD A,(IX+d)) proves both halves. The full substitution (every HL op, (HL)→(IX+d), IXH/IXL) is mechanical on top of this.
+- Storing IX/IY in the regfile (pair idx 13/14) and routing via `idx_pair_idx` avoided a new bus object and new 16-bit states — the 3F pair access generalized cleanly.
+
+### What warrants a second pair of eyes
+- The (IX+d) sign extension (sext8) for negative d — only tested +2; add a negative-displacement test.
+- The full DD/FD substitution (LD r,(IX+d), ADD A,(IX+d), INC (IX+d), etc.) — the subset covers LD A,(IX+d); the rest reuse the (IX+d) address-computation path.
+- IXH/IXL (LD IXH,n) — not in the subset; the model has it.
+
+### What should be done in the future
+- The full DD/FD substitution across all HL ops + IXH/IXL; the ED (block) prefix; real OUT/IN; the full PCA mesh integration; the physical board load.
+- A constrained-random integration fuzzer (random valid programs, model vs RTL, recorded seeds).
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: ... IX-IY ... matches oracle`.
+- `make test` — expect mesh + object graph (with IX/IY) + 49 model + 20 assembler + 6 integration.
+- `python3 -c "from zasm import assemble; print(bytes(assemble('LD IX,0x1234')[0]).hex())"` → `dd213412`.
+
+### Technical details
+- Files: `rtl/obj_regfile.sv` (+IX/IY idx 13/14, +dbg_ix/dbg_iy), `rtl/obj_decode.sv` (+idx_sel, +idx_pair_idx, +prefix-accumulator + LD A,(IX+d) states), `tools/zasm.py` (+DD/FD), `sim/tb_z80_core.sv` (+4 tests), `sim/test_assembler.py` (+7 IX/IY golden vectors → 20).
+- Oracle: LD IX,0x1234; INC IX 0x1234→0x1235; LD A,(IX+2) A=0xAB; LD IY,0xABCD. RTL matches.
+- Synth: 0 errors. `make test` green (mesh + object graph + 49 model + 20 asm + 6 integ).
+- Slips: 3D.6 done (Step 18). 3D.7 milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

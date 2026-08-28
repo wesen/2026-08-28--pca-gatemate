@@ -54,7 +54,8 @@ module z80_core #(
         .clk(clk), .rst_n(rst_n),
         .bus_req(bus_req), .bus_resp(reg_resp),
         .dbg_b(), .dbg_c(), .dbg_d(), .dbg_e(),
-        .dbg_h(), .dbg_l(), .dbg_a(), .dbg_f()
+        .dbg_h(), .dbg_l(), .dbg_a(), .dbg_f(),
+        .dbg_ix(), .dbg_iy()
     );
 
     obj_alu u_alu (

@@ -21,10 +21,12 @@ module obj_regfile (
     input  z80_obj::bus_req_t  bus_req,
     output z80_obj::bus_resp_t bus_resp,
     // debug visibility: the 8-bit registers, flat
-    output logic [7:0] dbg_b, dbg_c, dbg_d, dbg_e, dbg_h, dbg_l, dbg_a, dbg_f
+    output logic [7:0] dbg_b, dbg_c, dbg_d, dbg_e, dbg_h, dbg_l, dbg_a, dbg_f,
+    output logic [15:0] dbg_ix, dbg_iy
 );
     // 9 entries: 0=B 1=C 2=D 3=E 4=H 5=L 6=(reserved) 7=A 8=F
     logic [7:0] reg_t [0:8];
+    logic [15:0] idx_ix, idx_iy;   // IX/IY (3D.7, DD/FD prefix)
 
     assign dbg_b = reg_t[0];
     assign dbg_c = reg_t[1];
@@ -34,6 +36,8 @@ module obj_regfile (
     assign dbg_l = reg_t[5];
     assign dbg_a = reg_t[7];
     assign dbg_f = reg_t[8];
+    assign dbg_ix = idx_ix;
+    assign dbg_iy = idx_iy;
 
     logic        captured;
     logic [3:0]  idx_q;
@@ -47,6 +51,8 @@ module obj_regfile (
             4'd10: rd_of = {reg_t[2], reg_t[3]};   // DE
             4'd11: rd_of = {reg_t[4], reg_t[5]};   // HL
             4'd12: rd_of = {reg_t[7], reg_t[8]};   // AF
+            4'd13: rd_of = idx_ix;                // IX (DD/FD prefix, 3D.7)
+            4'd14: rd_of = idx_iy;                // IY
             default: rd_of = {8'h00, reg_t[idx]};
         endcase
     endfunction
@@ -61,6 +67,8 @@ module obj_regfile (
             idx_q    <= 4'd0;
             rd_q     <= 16'h0000;
             for (int i = 0; i < 9; i++) reg_t[i] <= 8'h00;
+            idx_ix <= 16'h0000;
+            idx_iy <= 16'h0000;
         end else begin
             if (sel && !captured) begin
                 captured <= 1'b1;
@@ -72,6 +80,8 @@ module obj_regfile (
                         4'd10: begin reg_t[2] <= bus_req.wdata[15:8]; reg_t[3] <= bus_req.wdata[7:0]; end  // DE
                         4'd11: begin reg_t[4] <= bus_req.wdata[15:8]; reg_t[5] <= bus_req.wdata[7:0]; end  // HL
                         4'd12: begin reg_t[7] <= bus_req.wdata[15:8]; reg_t[8] <= bus_req.wdata[7:0]; end  // AF
+                        4'd13: idx_ix <= bus_req.wdata;   // IX
+                        4'd14: idx_iy <= bus_req.wdata;   // IY
                         default: reg_t[bus_req.addr[3:0]] <= bus_req.wdata[7:0];
                     endcase
                 end
