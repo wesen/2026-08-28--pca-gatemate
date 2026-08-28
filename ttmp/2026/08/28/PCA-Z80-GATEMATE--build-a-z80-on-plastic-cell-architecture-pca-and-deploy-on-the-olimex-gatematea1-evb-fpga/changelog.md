@@ -112,3 +112,12 @@ Step 12 / Phase 4: built the two-pass Z80 assembler zasm.py (no eval, DR-9). Tar
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/zasm.py — Two-pass Z80 assembler (no eval) targeting the implemented ISA
 
+
+## 2026-08-28
+
+Step 13 / Phase 5: integration — object graph runs assembled Z80, differential vs model. tb_z80_integ.sv loads .hex via $readmemh into the memory object; run_integ.py assembles a program, runs z80_model.py + the object-graph testbench, compares 12 state fields. programs/selftest.asm (LD A,0; loop: ADD A,1; CP 3; JR NZ,loop; CALL add5; HALT; add5: ADD A,5; RET) reaches magic A=8, model==RTL byte-for-byte (PC=12 count=14 F=0x08). test_integ.py 6 tests (smoke/alu/loop/call/stack/selftest) pass. make test = mesh + object graph + 49 model + 16 assembler + 6 integration. placer.py deferred (baseline demo synthesizes z80_core directly in P6).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/sim/tb_z80_integ.sv — Integration testbench (loads assembled .hex via $readmemh, dumps state)
+

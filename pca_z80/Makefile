@@ -49,7 +49,7 @@ versions:
 
 # Pure-software unit tests (Phase 2+4): model + ISA + assembler. Phase 1+3: substrate + object-graph sim.
 .PHONY: test
-test: sim_mesh sim_core test_model test_assembler
+test: sim_mesh sim_core test_model test_assembler test_integ
 
 # Phase 3 object-graph simulation (directed differential vs the oracle).
 .PHONY: sim_core
@@ -67,6 +67,11 @@ test_model:
 .PHONY: test_assembler
 test_assembler:
 	python3 -m pytest sim/test_assembler.py -q
+
+# Phase 5 integration tests (assemble -> object graph vs model, differential).
+.PHONY: test_integ
+test_integ:
+	python3 -m pytest sim/test_integ.py -q
 
 # Phase 1 substrate simulation.
 .PHONY: sim_mesh
