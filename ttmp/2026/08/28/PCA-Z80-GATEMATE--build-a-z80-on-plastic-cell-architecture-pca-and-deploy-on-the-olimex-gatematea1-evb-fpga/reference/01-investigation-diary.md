@@ -182,6 +182,68 @@ The user's brief explicitly required the guide be "very clear and technical" wit
 - SystemVerilog: `pca_cell.sv` and `pca_router.sv` interface sketches (planned files).
 - Committed at the Step 1 checkpoint (ddf251f); this step will commit with the guide + tasks + index.
 
+## Step 3: Fix source-file placement, commit, upload to reMarkable
+
+This step corrected a file-placement bug found by `docmgr doctor`, committed the design step, and uploaded the deliverable bundle to reMarkable. The bug was that the real PCA PDFs (and the lab deck) had been written to the repo root instead of `sources/` because the cleanup command that downloaded `05`/`06` and moved `02b` lacked a `cd sources/`, so the relative output paths resolved against the repo root. The `sources/` directory held stale HTML paywall copies instead. The fix moved the real files into `sources/`, removed the stale HTML/image files, and re-ran `docmgr doctor` clean before committing and uploading.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Finalize the ticket deliverables: validate the docs with `docmgr doctor`, commit the design step, and upload the intern guide (plus sources and diary) to reMarkable as required by the brief.
+
+**Inferred user intent:** A clean, validated ticket with the guide actually on the reMarkable, and the work committed at a sensible checkpoint.
+
+**Commit (code/docs):** 929a738 — "Design: write PCA-Z80 intern onboarding guide + tasks/index; fix source PDF placement"
+
+### What I did
+- Ran `docmgr doctor --ticket PCA-Z80-GATEMATE --stale-after 30`; it reported 4 `missing_related_file` warnings for `sources/02b-...pdf` and `sources/05-...pdf` (referenced by the design doc and diary but "missing on disk").
+- Diagnosed: `ls` showed `sources/` held `01` (4429-byte HTML), `02` (470739-byte image PDF), `03-survey` (2320-byte HTML), and `SOURCES.md`; the **real** files `01` (88234-byte PDF), `02b` (623818), `05` (507359), `06` (9817600-byte ppt) were in the repo root. Root cause: the cleanup command that downloaded `05`/`06` and ran `mv /tmp/euc05-lab.pdf 02b-...` had no `cd sources/`, so the relative paths resolved at the repo root.
+- Fixed: `mv -f` the four real files from root into `sources/` (overwriting the stale `01`); `rm -f` the stale `sources/03-survey...Amano.pdf` (HTML) and the redundant `sources/02-...Nagamoto.pdf` (image; `02b` is the text-readable same paper). Verified each with `file` (all real PDF/ppt). Confirmed the repo root is clean of pdf/ppt.
+- Re-ran `docmgr doctor` → "✅ All checks passed" (1 finding, clean).
+- Committed the design step + the source fix as `929a738` (the diff correctly shows `sources/01` modified to the real PDF, `02b`/`05`/`06` added, the stale `02`/`03-survey` deleted, and the guide/tasks/index/diary/changelog updated).
+- Loaded the `remarkable-upload` skill; ran a `--dry-run` bundle upload of the guide + `SOURCES.md` + diary to `/ai/2026/08/28/PCA-Z80-GATEMATE` with `--toc-depth 2`; dry-run listed the three includes and the planned PDF/upload path.
+- Ran the real upload; output `OK: uploaded PCA-Z80 System Intern Onboarding Guide.pdf -> /ai/2026/08/28/PCA-Z80-GATEMATE`. Verified with `remarquee cloud ls /ai/2026/08/28/PCA-Z80-GATEMATE --long --non-interactive` → the document is present.
+- Updated the ticket changelog with this step.
+
+### Why
+`docmgr doctor` is the ticket-quality gate before upload (the ticket-research skill's step 6); uploading stale-HTML "sources" would have shipped a broken evidence bundle. Committing the fix separately keeps the history honest (the diary references `ddf251f` for Step 1) and records a real failure mode for the next session. The reMarkable upload is the explicit deliverable in the user's brief ("Store in the ticket and the nupload to remarkable").
+
+### What worked
+- `docmgr doctor`'s `missing_related_file` warning pinpointed the exact two files that were wrong, which made the root-vs-sources misplacement obvious within one `ls`.
+- The `--dry-run` upload confirmed the bundle composition (three files, correct names/paths) before spending a real upload, per the skill's "never skip dry-run" rule.
+- The upload auto-retry handled auth without needing `--reauth` (no `NOTE: auth expired` failure).
+
+### What didn't work
+- The source-file misplacement itself (see What was tricky). No new failures in this step; the fix was clean.
+
+### What I learned
+- Always `cd` (or use absolute paths) before a chain of `curl -o <relative>` and `mv` commands — a missing `cd` silently writes to the wrong directory, and `git add sources/` then does not stage the real artifacts. `docmgr doctor`'s related-file check is a cheap, effective backstop for exactly this class of mistake.
+- `remarquee upload bundle` with `--toc-depth 2` produces one navigable PDF from the guide + sources + diary, which is the right shape for an intern handoff on a tablet.
+
+### What was tricky to build
+- The file-placement bug. Symptom: `docmgr doctor` reported `sources/02b-...pdf` and `sources/05-...pdf` as "missing on disk" even though I had "downloaded" them. Cause: the cleanup command (`curl -o 05-... && curl -o 06-... && rm 03-PCA-scalable 04-PCA-1 && mv /tmp/euc05-lab.pdf 02b-...`) inherited the repo-root cwd (no `cd sources/`), so `05`/`06`/`02b` landed at root while the earlier per-command `cd` contexts did not persist across separate bash calls. Fix: `mv -f` each real file root→`sources/`, delete the stale HTML/image copies, re-verify with `file`, re-run doctor.
+
+### What warrants a second pair of eyes
+- The `sources/` directory now contains exactly `01`, `02b`, `05`, `06`, `SOURCES.md` — confirm no other stale artifacts remain and that `SOURCES.md`'s "Files" table matches the directory (it does: 01, 02b, 05, 06).
+- The committed `sources/01` is the real 88234-byte 9-page PDF (the foundational paper); confirm `git show 929a738:sources/01-...pdf | file -` reports PDF, not HTML.
+
+### What should be done in the future
+- Phase 0–1: scaffold the `pca_z80/` repo and write the PCA cell/router/mesh RTL with directed tests (guide §9, §13).
+- Phase 2: `z80_isa.py` + `z80_model.py` + the unit suite before any object RTL (the model-first invariant, guide §10, DR-4).
+- Re-upload the bundle to reMarkable after the design doc is revised during implementation (use `--force`, which deletes prior annotations).
+
+### Code review instructions
+- Run `docmgr doctor --ticket PCA-Z80-GATEMATE --stale-after 30` — expect "All checks passed".
+- `remarquee cloud ls /ai/2026/08/28/PCA-Z80-GATEMATE --long --non-interactive` — expect the onboarding guide PDF.
+- `git log --oneline -3` — expect `929a738`, `ddf251f`, `4eb6fe2`.
+
+### Technical details
+- Doctor findings: before fix = 4 `missing_related_file` warnings; after fix = "All checks passed".
+- Upload: `remarquee upload bundle <guide> <SOURCES.md> <diary> --name "PCA-Z80 System Intern Onboarding Guide" --remote-dir /ai/2026/08/28/PCA-Z80-GATEMATE --toc-depth 2 --non-interactive` → `OK: uploaded`.
+- Device listing: `[f] PCA-Z80 System Intern Onboarding Guide` at `/ai/2026/08/28/PCA-Z80-GATEMATE`.
+- Commits: `ddf251f` (research+scaffold), `929a738` (design+fix).
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

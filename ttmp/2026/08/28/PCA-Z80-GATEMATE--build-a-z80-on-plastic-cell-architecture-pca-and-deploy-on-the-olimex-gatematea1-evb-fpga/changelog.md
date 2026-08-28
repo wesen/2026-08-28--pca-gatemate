@@ -22,3 +22,12 @@ Step 2: wrote the PCA-Z80 System Intern Onboarding Guide (design-doc 01, ~50KB) 
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/01-pca-z80-system-intern-onboarding-guide.md — The intern onboarding guide (main deliverable)
 
+
+## 2026-08-28
+
+Step 3: fixed source-file placement (real PDFs 01/02b/05 + deck 06 moved root->sources/, stale HTML removed); docmgr doctor now clean; committed (929a738); bundle-uploaded the guide + SOURCES.md + diary to reMarkable at /ai/2026/08/28/PCA-Z80-GATEMATE (dry-run first); verified on device.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/reference/01-investigation-diary.md — Diary Step 3 records the placement fix, commit, and reMarkable upload
+
