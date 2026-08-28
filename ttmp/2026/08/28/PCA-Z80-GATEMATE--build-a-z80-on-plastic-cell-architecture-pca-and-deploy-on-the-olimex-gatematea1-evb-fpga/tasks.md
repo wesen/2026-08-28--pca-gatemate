@@ -46,13 +46,17 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] Exit: model passes the unit suite; no object RTL written  *(49 passed in 0.11s)*
 
 ### Phase 3 — Object RTL, milestone per object (§6.4)
-- [ ] `obj_pc.sv` — PC + R refresh counter
-- [ ] `obj_regfile.sv` — A F BC DE HL + primed set + IX IY SP (LUT-RAM)
-- [ ] `obj_alu.sv` — bit-serial 8-bit ALU + shifter (§8.2)
-- [ ] `obj_flags.sv` — S Z H P/V N C
-- [ ] `obj_memio.sv` — ROM/RAM + port regs + IFF/IM
-- [ ] `obj_decode.sv` — prefix FSM + PLA control unit (§7, DR-6)
-- [ ] 3A fetch/NOP/HALT; 3B LD immediate/register; 3C 8-bit ALU + flags; 3D 16-bit + IX/IY; 3E JP/JR/CALL/RET; 3F stack + I/O
+- [x] `z80_obj.sv` object-bus contract (req/resp structs, object ids, PC sub-ops)
+- [x] `obj_pc.sv` — PC + R refresh counter (held-request slave)
+- [x] `obj_memio.sv` — byte ROM + RAM (3A: reads)
+- [x] `obj_decode.sv` — master FSM (3A: fetch/NOP/HALT) (§7)
+- [x] `z80_core.sv` — wires master to slaves (OR-ack + rdata mux)
+- [x] 3A fetch/NOP/HALT — directed differential vs oracle (PASS; synth clean ~995 cells)
+- [ ] 3B LD immediate/register — add obj_regfile, extend decode
+- [ ] 3C 8-bit ALU + flags — add obj_alu, obj_flags
+- [ ] 3D 16-bit + IX/IY
+- [ ] 3E JP/JR/CALL/RET
+- [ ] 3F stack + I/O + faults
 - [ ] Exit: each object passes directed tests vs model slices; decode handles all 4 prefix families
 
 ### Phase 4 — Assembler + decoder round-trip

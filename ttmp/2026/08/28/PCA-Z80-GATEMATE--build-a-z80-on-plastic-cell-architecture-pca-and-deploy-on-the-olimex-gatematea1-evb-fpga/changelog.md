@@ -58,3 +58,12 @@ Step 6 / Phase 2: built the Z80 reference model (oracle). z80_isa.py (single ISA
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/z80_model.py — Z80 executable reference model (the differential oracle for Phase 3)
 
+
+## 2026-08-28
+
+Step 7 / Phase 3A: built the first Z80 object-RTL milestone. z80_obj.sv (object-bus contract: bus_req_t/bus_resp_t, object ids, PC sub-ops), obj_pc.sv (PC+R held-request slave), obj_memio.sv (byte ROM+RAM slave), obj_decode.sv (master FSM FETCH_PC/FETCH_OP/INC/DECODE; NOP retires, HALT halts), z80_core.sv (master-to-slaves wiring). tb_z80_core.sv directed differential vs oracle: NOP,NOP,HALT -> PC=3,R=3,count=3,halted (PASS). Synth clean (~995 cells). make test = mesh + 3A + 49 model tests. Scope: 3A delivered; 3B-3F follow same pattern (budget). Printed P3 START slip.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_decode.sv — Z80 decode master FSM (3A: fetch/NOP/HALT)
+

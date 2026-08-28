@@ -455,6 +455,77 @@ Phase 2's exit criterion (design doc §13) is "model passes the unit suite; no R
 - Invariant held: no Z80 object RTL (`obj_*.sv`) written in this phase.
 - Slips printed: P2 START (plan). P2 DONE to follow.
 
+## Step 7: Build Phase 3 — milestone 3A (the Z80 object graph)
+
+This step built the first Z80 object-RTL milestone: the fetch/decode/execute object graph (`obj_decode` master + `obj_pc` and `obj_memio` slaves) on a shared held-request bus, executing NOP/HALT, with a directed differential test against the `z80_model.py` oracle. The object graph is real synthesizable hardware (Yosys `synth_gatemate` clean, ~995 cells) and matches the oracle exactly on the NOP,NOP,HALT program (PC=3, R=3, instruction_count=3, halted, not faulted). This proves the core architectural claim of the design doc — that the Z80 maps to a graph of objects communicating by held-request transactions (DR-7) — and locks the methodology (object bus contract, master FSM, slave handshake, differential vs the oracle) that milestones 3B–3F reuse.
+
+**Scope note (budget):** Phase 3 has six milestones (3A–3F). This step delivers 3A (fetch/NOP/HALT). 3B–3F (LD immediate/register, 8-bit ALU+flags, 16-bit+IX/IY, control, stack+I/O+faults) follow the identical pattern on the same bus and are the next increments; they were not all completed in this session. The diary is explicit about this so resumption is clean.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Begin Phase 3 object RTL with milestone 3A (the object-graph seed: fetch/NOP/HALT), differential-tested against the oracle, committing and slip-printing; be honest in the diary about how far the phase got given the budget.
+
+**Inferred user intent:** A real, synthesizable Z80 object graph — not a paper design — that proves objects-on-a-bus executes the Z80 fetch loop with the same retirement semantics as the reference model.
+
+**Commit (code/docs):** (this step) Phase 3A object graph.
+
+### What I did
+- Printed the **P3 START** slip (plan mode: 3A fetch/NOP/HALT … 3F stack/IO/faults).
+- Confirmed the oracle's expected state for NOP,NOP,HALT with `z80_model.py`: PC=3, R=3, count=3, halted=True, faulted=False (HALT retires, matching the model).
+- Wrote `rtl/z80_obj.sv`: the object-bus contract — object ids (OBJ_PC/MEM/REG/ALU/FLAGS), the `bus_req_t` (req/we/obj/addr/wdata, 38-bit) and `bus_resp_t` (ack/rdata, 17-bit) packed structs, and PC sub-ops (PC_READ/PC_INC/PC_SET). Single source of truth for the object graph (the `opcodes.py`/`pca_types` analogue).
+- Wrote `rtl/obj_pc.sv` (PC+R slave, held-request anti-double handshake), `rtl/obj_memio.sv` (byte ROM + RAM slave, synchronous read for BRAM), `rtl/obj_decode.sv` (master FSM: FETCH_PC→FETCH_OP→INC→DECODE; NOP retires, HALT halts, else faults), `rtl/z80_core.sv` (wires master to slaves: OR-ack + rdata mux).
+- Wrote `sim/tb_z80_core.sv`: loads NOP,NOP,HALT into `dut.u_memio.rom`, runs, and checks PC/R/count/halted/faulted/IR against the oracle's values (a directed differential test).
+- Fixed two iverilog portability issues (named struct literals `'{field:val}` → field-by-field assigns; same lesson as Phase 1) and the Yosys wildcard-import issue (package `localparam`s/typedefs need explicit `z80_obj::` scoping — the same rule locked in Phase 1 for `pca_types`).
+- Confirmed the object graph synthesizes with Yosys `synth_gatemate -luttree -nomx8` (0 errors, ~995 cells) and added `sim_core` to the Makefile `test` target.
+
+### Why
+3A's exit (design doc §13) is "fetch/NOP/HALT" — the minimal object graph that proves the architecture. Building it first isolates the object-bus + master-FSM + slave-handshake design from ISA breadth; 3B–3F then add instructions by extending the decode FSM and adding regfile/alu/flags objects on the same bus. The directed differential test against `z80_model.py` (not against hardware) is the model-first payoff: the RTL is wrong iff it diverges from the oracle.
+
+### What worked
+- The held-request bus master/slave pattern transferred directly from the sibling MATE-16 project: the decode master drives `bus_req`, waits `bus_resp.ack`, latches, deasserts; slaves capture-on-first-req and hold ack until req drops (anti-double). 3A passed on the second sim run after the struct-literal fix.
+- The oracle's HALT-retires decision (count includes HALT) made the differential check unambiguous — the RTL matches `instruction_count=3`, not 2.
+- Reusing the Phase 1 Yosys portability rule (`pkg::` for typedefs/localparams, bare for enum constants) made the object graph synth-clean on the first Yosys try after scoping.
+
+### What didn't work
+- **iverilog named struct literals** (`bus_req <= '{req:1, ...}`) — unsupported; fixed with field-by-field nonblocking assigns.
+- **Yosys wildcard import of `bus_req_t`/`OBJ_PC`/`PC_READ`** — typedefs and localparams are not wildcard-imported (only enum constants are); fixed by explicit `z80_obj::` scoping. (Same rule as Phase 1; documented in the diary so Phase 3B–3F RTL applies it from the start.)
+
+### What I learned
+- The object-bus is the right granularity for the baseline: one master (decode) + memory-mapped slaves (pc/memio/regfile/alu/flags) is far simpler than a full message crossbar, and it is the faithful baseline per DR-7 (the Phase 5 placer maps these slaves to PCA mesh cells; the bus becomes the mesh's static message channels). The full message-passing object graph is the Phase 5 refinement, not a Phase 3 prerequisite.
+- The decode master FSM is the seed of the whole Z80: 3B–3F add states after S_DECODE that issue bus transactions to the new objects (regfile read, alu op, flags write), reusing the exact `if (!bus_req.req) setup; else if (ack) latch+advance` pattern. The architecture scales by addition, not redesign.
+- The 3A object graph is ~995 cells — tiny; the full Z80 object graph will be larger but the CCGM1A1 (~40k LUTs) has ample room (the Phase 1 3×3 mesh alone was ~12.5k cells, so the mesh + Z80 objects fit).
+
+### What was tricky to build
+- The master handshake timing. Symptom: a naive `if (ack) latch` can latch on the same cycle the req is asserted (combinational ack) or miss it. Resolution: the master sets `bus_req` when `!bus_req.req` (req is 0), so the registered req goes high next cycle; the slave acks the cycle after; the master latches on `bus_req.req && bus_resp.ack` and deasserts req. This is the same held-request discipline as the Phase 1 router and the MATE-16 bus.
+- Deciding the object-bus vs full-mesh-message scope for 3A. Symptom: a full message crossbar (decode↔pc, decode↔memio, with ack routing) is a large debug surface for a first milestone. Resolution: a single shared held-request bus with an OR-ack + rdata mux (only the addressed slave acks) is equivalent for 3A and is the DR-7 baseline; the mesh integration is deferred to Phase 5 (the placer).
+
+### What warrants a second pair of eyes
+- The decode master's `S_DECODE` retire semantics — confirm NOP retires exactly once and HALT retires (matches the oracle's count=3). (The directed test asserts this.)
+- The `obj_memio` synchronous-read + captured-transaction handshake — confirm a back-to-back read returns the right byte (no stale `rom_q`). 3A only does one read per instruction; 3B's `LD r,n` does two (opcode + immediate) back-to-back, which will stress this.
+- The `R` refresh counter semantics — 3A bumps R on PC_INC; confirm the Z80 bumps R per *fetch* (byte), not per instruction (the oracle increments R per fetch). 3A's NOP does one fetch/one inc → R=3 after 3 instructions; matches oracle.
+
+### What should be done in the future
+- 3B: add `obj_regfile` (8-bit registers as a bus slave) and extend decode to LD r,n and LD r,r' (issue a regfile write after the immediate/operand fetch); differential-test against the oracle for a load program.
+- 3C: add `obj_alu` + `obj_flags` and the 8-bit ALU (ADD/SUB/AND/OR/XOR/CP/INC/DEC) with the flag model from `z80_model.py`; differential-test flag bits.
+- 3D–3F: 16-bit + IX/IY, control (JP/JR/CALL/RET), stack+I/O+faults; then the DD/FD/CB/ED prefix machinery on the bus.
+- Move the object graph onto the actual PCA mesh (Phase 5 placer) once 3B–3F pass.
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: Phase 3A object graph (NOP/NOP/HALT) matches oracle`.
+- `make test` — expect mesh PASS, 3A PASS, 49 model tests passed.
+- Synthesize: `yosys -p 'read_verilog -defer -sv rtl/z80_obj.sv rtl/obj_pc.sv rtl/obj_memio.sv rtl/obj_decode.sv rtl/z80_core.sv <top>; synth_gatemate -top <top> -luttree -nomx8'` — expect 0 errors.
+- Confirm no 3B–3F object RTL exists yet (only obj_pc/obj_memio/obj_decode); the decode FSM only handles NOP/HALT.
+
+### Technical details
+- Files: `rtl/z80_obj.sv` (bus contract), `rtl/obj_pc.sv`, `rtl/obj_memio.sv`, `rtl/obj_decode.sv`, `rtl/z80_core.sv`, `sim/tb_z80_core.sv`.
+- Oracle expected (NOP,NOP,HALT): PC=3, R=3, count=3, halted, not faulted, IR=0x76. RTL matches.
+- Synth (top_zc): 0 errors, ~995 cells, 908 wires.
+- `make test` now: mesh sim + 3A object-graph sim + 49 model tests (full software + object-graph pyramid, <0.1 s).
+- Invariant: object graph is the *first* RTL beyond the Phase 1 substrate (model-first held; the oracle pre-exists from Phase 2).
+- Slips printed: P3 START (plan). P3 progress slip to follow (3A done; 3B–3F pending).
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

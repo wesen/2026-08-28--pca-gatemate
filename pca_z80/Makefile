@@ -25,6 +25,10 @@ SIM_SRCS  := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv \
 PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cell.sv $(RTL_DIR)/pca_mesh.sv
 SIM_MESH_SRCS := $(PCA_RTL) $(SIM_DIR)/tb_pca_mesh.sv
 
+# Phase 3: the Z80 object graph (bus contract + objects + core) + testbench.
+Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
+SIM_CORE_SRCS := $(Z80_RTL) $(SIM_DIR)/tb_z80_core.sv
+
 .PHONY: all versions test sim synth pnr bit load clean
 all: sim bit
 
@@ -43,9 +47,16 @@ versions:
 	  python3 --version 2>&1; \
 	} | tee $(BUILD)/tool-versions.txt
 
-# Pure-software unit tests (Phase 2): reference model + ISA. Phase 1: substrate sim.
+# Pure-software unit tests (Phase 2): reference model + ISA. Phase 1+3: substrate + object-graph sim.
 .PHONY: test
-test: sim_mesh test_model
+test: sim_mesh sim_core test_model
+
+# Phase 3 object-graph simulation (directed differential vs the oracle).
+.PHONY: sim_core
+sim_core:
+	@mkdir -p $(BUILD)
+	iverilog -g2012 -s tb_z80_core -o $(BUILD)/z80_core.vvp $(SIM_CORE_SRCS)
+	vvp $(BUILD)/z80_core.vvp | tee $(BUILD)/z80_core_sim.log
 
 # Phase 2 reference-model unit tests (pytest, toolchain-independent).
 .PHONY: test_model
