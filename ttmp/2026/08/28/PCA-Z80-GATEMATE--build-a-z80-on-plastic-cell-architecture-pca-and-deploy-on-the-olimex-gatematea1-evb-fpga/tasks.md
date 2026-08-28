@@ -31,11 +31,12 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] Exit: toolchain verified; skeleton synthesizes an empty top  *(PASS: sim self-test + synth/pnr/bit produces build/top.bit)*
 
 ### Phase 1 — PCA cell substrate (paper 01 §2, paper 05)
-- [ ] `pca_z80/rtl/pca_cell.sv` — plastic part LUT-RAM + built-in part FSM (§9.1)
-- [ ] `pca_z80/rtl/pca_router.sv` — 5-port exact routing, held-request/ack (§9.2)
-- [ ] `pca_z80/rtl/pca_mesh.sv` — R×C cell array (§9.3)
-- [ ] Directed cell/router tests; held-request anti-double assertion under random stalls
-- [ ] Exit: a packet routes A→B with a single ack; anti-double holds
+- [x] `pca_z80/rtl/pca_types.sv` — msg_t/dir_e/cmd_e contract + xy_route (§9.1)
+- [x] `pca_z80/rtl/pca_router.sv` — 5-port XY router, held-request/ack, one-in-flight (§9.2)
+- [x] `pca_z80/rtl/pca_cell.sv` — router wrapper + scalar Local port (§9.1)
+- [x] `pca_z80/rtl/pca_mesh.sv` — COLS×ROWS neighbor-wired array (§9.3)
+- [x] `sim/tb_pca_mesh.sv` directed tests; held-request anti-double under random stalls
+- [x] Exit: a packet routes A->B with a single ack; anti-double holds (T1/T2/T3 PASS); 3×3 mesh synthesizes clean
 
 ### Phase 2 — Z80 reference model (the oracle)
 - [x] No RTL yet (Phase-2 invariant from MATE-16)  *(enforced)*

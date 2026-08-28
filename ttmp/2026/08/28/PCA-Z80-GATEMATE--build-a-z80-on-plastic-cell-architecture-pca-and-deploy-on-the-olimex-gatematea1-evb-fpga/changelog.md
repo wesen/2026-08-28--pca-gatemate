@@ -40,3 +40,12 @@ Step 4 / Phase 0: built pca_z80/ skeleton + verified the OSS CAD flow end-to-end
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/Makefile — Phase 0 build flow (versions/test/sim/synth/pnr/bit/load)
 
+
+## 2026-08-28
+
+Step 5 / Phase 1: built the PCA routing substrate. pca_types.sv (msg_t/dir_e/cmd_e + xy_route), pca_router.sv (5-port XY, held-request/ack, one-in-flight, anti-double), pca_cell.sv (router + scalar Local), pca_mesh.sv (COLS×ROWS neighbor-wired, flat packed-1D links). tb_pca_mesh T1/T2/T3 PASS (A->B single ack; A->C XY via B-path, B untouched; anti-double under random stalls). 3×3 mesh synthesizes clean (Yosys, 0 errors, ~12.5k cells). Portable subset locked: packed 1D + +: + pca_types:: scoping + bare enum constants (works in iverilog AND Yosys). Phase 0 top sim still passes (regression). Printed P1 START slip.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/pca_router.sv — 5-port XY router, held-request handshake, anti-double
+

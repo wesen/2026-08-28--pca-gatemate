@@ -21,6 +21,10 @@ RTL_SYNTH := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
 SIM_SRCS  := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv \
              $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_top.sv
 
+# Phase 1: the PCA routing substrate (types/router/cell/mesh) + testbench.
+PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cell.sv $(RTL_DIR)/pca_mesh.sv
+SIM_MESH_SRCS := $(PCA_RTL) $(SIM_DIR)/tb_pca_mesh.sv
+
 .PHONY: all versions test sim synth pnr bit load clean
 all: sim bit
 
@@ -41,8 +45,20 @@ versions:
 
 # Pure-software unit tests (Phase 2+): reference model, ISA, assembler.
 .PHONY: test
-test:
-	python3 -m pytest sim/ -q
+# Phase 1: run the substrate sim (routing + single-ack + anti-double).
+test: sim_mesh
+
+# Phase 1 substrate simulation.
+.PHONY: sim_mesh
+sim_mesh:
+	@mkdir -p $(BUILD)
+	iverilog -g2012 -s tb_pca_mesh -o $(BUILD)/pca_mesh.vvp $(SIM_MESH_SRCS)
+	vvp $(BUILD)/pca_mesh.vvp | tee $(BUILD)/pca_mesh_sim.log
+
+# Assemble a program (Phase 4+): default target program.asm -> build/program.*
+.PHONY: asm
+asm:
+	@echo "assembler arrives in Phase 4"
 
 # Simulation (sibling §1.7): uses the sim-only CC_USR_RSTN model.
 sim:

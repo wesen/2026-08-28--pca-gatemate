@@ -28,14 +28,23 @@ RelatedFiles:
       Note: The chronological investigation diary
     - Path: repo://pca_z80/Makefile
       Note: Phase 0 build flow driver
+    - Path: repo://pca_z80/rtl/pca_mesh.sv
+      Note: COLS×ROWS neighbor-wired mesh (flat packed-1D links)
+    - Path: repo://pca_z80/rtl/pca_types.sv
+      Note: The PCA message-protocol contract (single source of truth, like opcodes.py)
     - Path: repo://pca_z80/rtl/top.sv
       Note: Phase 0 placeholder top (counter-LED, proven flow)
+    - Path: repo://pca_z80/sim/tb_pca_mesh.sv
+      Note: Phase 1 substrate tests (routing + single-ack + anti-double)
 ExternalSources: []
 Summary: Build a Z80 microprocessor as a graph of wired-logic objects on Plastic Cell Architecture (PCA) and deploy it on the Olimex GateMateA1-EVB FPGA, reusing the sibling MATE-16 toolchain and verification methodology.
 LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
+
+
 
 
 

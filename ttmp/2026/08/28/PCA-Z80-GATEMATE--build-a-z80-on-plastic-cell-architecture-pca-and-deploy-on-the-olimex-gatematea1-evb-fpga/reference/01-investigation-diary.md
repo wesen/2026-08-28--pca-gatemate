@@ -309,6 +309,82 @@ Phase 0's exit criterion (design doc §13) is "toolchain verified; skeleton synt
 - PnR: placed; GPIO banks W1/W2 used; bitstream `build/top.bit` = 181 bytes.
 - Slips printed: PLAN (7 phases), P0 START (plan mode).
 
+## Step 5: Build Phase 1 — the PCA routing substrate (router + cell + mesh)
+
+This step built the PCA substrate: the message-protocol contract (`pca_types.sv`), the 5-port XY-routing router with a four-cycle held-request handshake (`pca_router.sv`), the cell wrapper exposing the Local port (`pca_cell.sv`), and a COLS×ROWS mesh with neighbor wiring (`pca_mesh.sv`). A directed testbench (`tb_pca_mesh.sv`) proved the Phase 1 exit criterion: a packet routes A→B with exactly one accept, XY routing delivers a diagonal A→C without mis-delivering the cell on the path, and the anti-double property holds under random target stalls. The 3×3 mesh also synthesizes cleanly with Yosys `synth_gatemate -luttree -nomx8`, so the substrate is real hardware, not just simulation. The bulk of the work was portability: iverilog and Yosys each rejected a different SV idiom, and the substrate had to be rewritten twice to use constructs both tools accept.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Implement Phase 1 of the design doc — the PCA cell/router/mesh RTL with directed tests and the held-request anti-double assertion under random stalls — committing at intervals, keeping the diary, and printing the brutalist phase-start/phase-done slips.
+
+**Inferred user intent:** A real, synthesizable routing substrate that the Z80 objects (Phase 3) will sit on, proven by tests before any object RTL is written.
+
+**Commit (code/docs):** (this step) Phase 1 substrate.
+
+### What I did
+- Printed the **P1 START** slip (plan mode: pca_types / router / cell+mesh / route A→B / anti-double).
+- Wrote `rtl/pca_types.sv`: the contract — `dir_e` (N/S/E/W/Local), `cmd_e` (NOP/CONFIG/WRITE/READ/RESP), the 67-bit packed `msg_t` (cmd + dest/src x/y + addr + data), `PKT_W=67`, and the `xy_route()` function (deterministic XY: X first then Y, deadlock-free on a mesh). This is the substrate's single source of truth, analogous to the sibling's `opcodes.py`.
+- Wrote `rtl/pca_router.sv`: a 5-port router, one packet in flight at a time, FSM `IDLE→FORWARD→ACK_IN`. IDLE picks an input (priority L,N,S,E,W) and computes the XY output; FORWARD holds `out_req`+`out_msg` until `out_ack`; ACK_IN holds `in_ack` until the requester deasserts `req`, then clears. Anti-double falls out of "one in flight": a held req is selected once, and `out_req` is driven once.
+- Wrote `rtl/pca_cell.sv`: a thin wrapper giving the router its (X,Y) coords and exposing the Local port as scalar signals (TB/object-friendly) while passing N/S/E/W to the mesh.
+- Wrote `rtl/pca_mesh.sv`: a `COLS×ROWS` generate array of cells with full neighbor wiring (vertical `vs_/vn_` and horizontal `he_/hw_` directed link channels), boundary in-ports tied to 0, Local ports exposed as flat packed arrays indexed by `id = Y*COLS+X`.
+- Wrote `sim/tb_pca_mesh.sv`: a 3×3 mesh testbench. Cell A=(0,0) is a held-request initiator; cells B=(2,0) and C=(2,2) are passive held-request targets with a random-stall ready (`$urandom%3==0`). Three tests: T1 A→B WRITE 0xCAFE (delivered once, correct fields); T2 A→C WRITE 0xBEEF (XY routes East×2 then South×2; B on the path is NOT mis-delivered); T3 anti-double (B accept count stays 1 after 40 idle cycles).
+- Iterated through three portability failures (see What didn't work) and rewrote the RTL to flat 1D packed msg bundles (`logic [5*PKT_W-1:0]` sliced with `[d*PKT_W +: PKT_W]`) and explicit `pca_types::` scoping for typedefs/params so both iverilog and Yosys accept it.
+- Wired the substrate into the Makefile (`sim_mesh` target; `test` runs it) and confirmed the Phase 0 top sim still passes (regression).
+- Synthesized the 3×3 mesh with Yosys: 0 errors, 1 benign ABC warning; ~12.5k cells / 683 DFFs / 261 adders (the 8-bit XY comparisons and 67-bit msg steering dominate — a real cost noted for Phase 5 placement).
+
+### Why
+Phase 1's exit criterion (design doc §13) is "a packet routes A→B with a single ack; the held-request anti-double assertion holds under random stalls." Building the substrate first — before any Z80 object — means Phase 3 objects attach to a *proven* network, so object bugs can't be confused with routing bugs (the same separation that let MATE-16 debug its core against a proven model). Making it synthesizable now (not deferred to Phase 6) proves the substrate is real hardware and avoids a large rewrite later.
+
+### What worked
+- The held-request handshake + "one packet in flight" made anti-double almost trivial: the testbench's `t_cnt_b` increments exactly once per transaction and the 20-/40-cycle idle waits show it never re-increments — the MATE-16 "doubled side effect" failure mode is structurally prevented.
+- XY routing made the "don't mis-deliver the on-path cell" test (T2) a free correctness check: B sits on the A→C path but `dest=(2,2)` routes South at (2,0), so B's target never sees the packet (`t_cnt_b==0`).
+- Keeping the Phase 0 placeholder top alongside the new mesh gave a free regression: `make sim` (top) and `make sim_mesh` both pass independently.
+
+### What didn't work
+- **`surf annas-archive` / Anna's Archive CAPTCHA** (from Step 1) — not relevant here; no action.
+- **iverilog: `msg_t'{cmd:..., default: '0}` assignment pattern** — `default:` keyword unsupported; fixed by using `'0` (all-zero == CMD_NOP).
+- **iverilog: `.field` on a cast (`msg_t'(x).cmd`)** — unsupported; fixed by assigning to a temp `msg_t` first (`rb = msg_t'(t_msg_b); rb.cmd`).
+- **iverilog: unpacked 1-bit array ports indexed by a variable** (`out_ack[out_idx]`) — internal elaboration assert (core dump); fixed by switching to packed `logic [4:0]`.
+- **iverilog: "sorry: constant selects in always_* processes"** for `in_req[L]` (localparam index) — a *warning* that makes the process sensitive to all bits (correct for comb logic); left as-is, behavior verified by the passing tests.
+- **iverilog: multiple drivers** when a default tie-off loop drove bits later overridden — fixed by making the loop skip the overridden cells.
+- **Yosys: wildcard `import pca_types::*` does NOT import typedefs** (`msg_t`/`dir_e` unknown) — fixed by explicit `pca_types::` scoping for `msg_t`, `dir_e`, `PKT_W`, `xy_route` (enum *constants* like `DIR_N`/`CMD_WRITE` DO import via wildcard, so they stayed bare).
+- **Yosys: packed 2D array ports** (`logic [4:0][PKT_W-1:0]`) — "Failed to detect width" in generate scopes; fixed by flattening all msg bundles to 1D packed `logic [N*PKT_W-1:0]` with `+:` part-selects (and flattening the mesh link wires to packed 1D too).
+- **Benign undriven-bit warnings** for the unused mesh port-4 bits — fixed by driving the cell's mesh port-4 outputs (mirroring Local) and tying the mesh port-4 inputs.
+
+### What I learned
+- iverilog and Yosys disagree on a lot of SystemVerilog: iverilog accepts wildcard-imported typedefs and (with warnings) constant selects; Yosys rejects wildcard-imported typedefs and packed 2D array ports but accepts enum constants via wildcard. The portable subset is: packed 1D vectors + `+:` part-selects + explicit `pkg::` scoping for types/params + bare enum constants. Locking this in now (the substrate) means Phase 3 object RTL can follow the same pattern without re-fighting these battles.
+- "One packet in flight" is the cheapest correct router: no arbitration, no virtual channels, no wormhole buffers, and anti-double is structural. Parallelism/throughput is a Phase 7 extension, not a Phase 1 need.
+- The 3×3 mesh is ~12.5k cells — the 8-bit coordinate compare per router is the expensive part; a smaller coordinate width or a smaller mesh will matter for fitting the full Z80 object graph on the CCGM1A1.
+
+### What was tricky to build
+- The mesh neighbor wiring. Symptom: getting the N/S/E/W link directions and the held-request "who drives / who reads" exactly right across two cells sharing one link, with XY's coordinate convention (X=column East, Y=row South). Cause: each link carries two directed channels (e.g. `vs_` south-going + `vn_` north-going), and each cell port has 3 input and 3 output signals that must map to the right channel and the right neighbor. Resolution: wrote a fixed convention (documented in the mesh header) and derived each cell's port-to-link connection from it (N port ↔ `vlink(x,y-1)`, S ↔ `vlink(x,y)`, E ↔ `hlink(x,y)`, W ↔ `hlink(x-1,y)`), then let T2 (the diagonal, B-on-path test) catch any wiring mistake — it did not mis-deliver, so the wiring is consistent with XY routing.
+- Portability whack-a-mole: each fix (struct literal → cast → packed arrays → scoping) was a separate iverilog-or-Yosys rejection, and the sim often passed while Yosys failed (or vice versa). Resolution: after each change, re-ran BOTH `iverilog` sim AND `yosys synth` before moving on, so the portable subset was verified by two tools at once.
+
+### What warrants a second pair of eyes
+- The mesh link-direction convention (vs_/vn_/he_/hw_) and the per-cell port-to-link assigns — confirm against the documented convention; T2 passing is strong evidence but a wrong convention that still satisfies XY could exist.
+- The router's "one in flight" priority (L,N,S,E,W fixed) — under contention this starves lower-priority ports; acceptable for the baseline (one initiator) but note for Phase 5 when multiple objects contend.
+- The 12.5k-cell synthesis cost for 3×3 — verify the coordinate-compare width can be shrunk (the Z80 object graph needs maybe a 4×4 or 6×6 mesh; 8-bit coords are wasteful).
+
+### What should be done in the future
+- Phase 2: write `z80_isa.py` (single ISA contract) + `z80_model.py` (the executable oracle) + the unit suite, BEFORE any object RTL (the model-first invariant, design doc §13 Phase 2 exit: "no RTL written yet").
+- Consider a `pca_target` reusable module (the held-request target with random stalls) extracted from the testbench, for use as the plastic-part placeholder in Phase 3.
+- Add a constrained-random differential test for the mesh (random src/dest/cmd/data, many seeds) once the initiator/target are reusable.
+
+### Code review instructions
+- `cd pca_z80 && source ~/fpga/oss-cad-suite/environment && make sim_mesh` — expect `PASS: PCA mesh substrate (routing + single-ack + anti-double)`.
+- `make sim` — expect `PASS: Phase 0 top self-test` (regression).
+- Synthesize: `yosys -p 'read_verilog -defer -sv rtl/pca_types.sv rtl/pca_router.sv rtl/pca_cell.sv rtl/pca_mesh.sv /tmp/top_pca.sv; synth_gatemate -top top_pca -luttree -nomx8'` — expect 0 errors.
+- Read the mesh header comment for the link convention, then cross-check one cell's N and S port assigns against it.
+
+### Technical details
+- Files: `rtl/pca_types.sv` (67-bit msg_t, xy_route), `rtl/pca_router.sv` (5-port, FSM IDLE/FORWARD/ACK_IN, one-in-flight), `rtl/pca_cell.sv` (router + scalar Local), `rtl/pca_mesh.sv` (COLS×ROWS, flat packed-1D links), `sim/tb_pca_mesh.sv` (3×3, T1/T2/T3).
+- Sim: T1 A(0,0)→B(2,0) count=1; T2 A→C(2,2) C count=1, B count=0; T3 B count=1 after 40 cycles. VCD `build/pca_mesh.vcd`.
+- Synth (3×3): 0 errors, 1 benign ABC warning, ~12494 cells / 683 CC_DFF / 261 CC_ADDF.
+- Portable subset locked: packed 1D + `+:` + `pca_types::` for types/params + bare enum constants.
+- Slips printed: P1 START (plan). P1 DONE to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
