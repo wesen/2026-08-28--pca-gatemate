@@ -24,7 +24,8 @@ SIM_SRCS  := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv \
 # Phase 6: the full Z80 object-graph top (board-facing).
 Z80_TOP_RTL := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv \
              $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv \
-             $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
+             $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv \
+             $(RTL_DIR)/uart_tx.sv $(RTL_DIR)/top.sv
 PROG ?= blink
 
 # Phase 1: the PCA routing substrate (types/router/cell/mesh) + testbench.
