@@ -185,16 +185,38 @@ module tb_z80_core;
         if (dut.u_regfile.dbg_b !== 8'h00) begin $display("FAIL 3F5c: B=%h (oracle 0x00)", dut.u_regfile.dbg_b); errors=errors+1; end
         if (errors==0) $display("3F5c: DEC B countdown loop matches oracle (B=0)");
 
+        // ---- 3D: ADD HL,BC (LD BC,2; LD HL,0x0FFF; ADD HL,BC -> 0x1001, H set) ----
+        errors = 0;
+        run_prog(8'h01, 8'h02, 8'h00, 8'h21, 8'hFF, 8'h0F, 8'h09, 8'h76, 8);  // LD BC,2; LD HL,0x0FFF; ADD HL,BC; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_h !== 8'h10 || dut.u_regfile.dbg_l !== 8'h01) begin $display("FAIL 3D1: HL=%h%h (oracle 0x1001)", dut.u_regfile.dbg_h, dut.u_regfile.dbg_l); errors=errors+1; end
+        if ((dut.u_flags.dbg_f & 8'h10) === 8'h00) begin $display("FAIL 3D1: H not set", dut.u_flags.dbg_f); errors=errors+1; end
+        if (errors==0) $display("3D1: ADD HL,BC matches oracle (HL=0x1001 H)");
+
+        // ---- 3D: INC BC (LD BC,0xFFFF; INC BC -> 0x0000) ----
+        errors = 0;
+        run_prog(8'h01, 8'hFF, 8'hFF, 8'h03, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD BC,0xFFFF; INC BC; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_b !== 8'h00 || dut.u_regfile.dbg_c !== 8'h00) begin $display("FAIL 3D2: BC=%h%h (oracle 0x0000)", dut.u_regfile.dbg_b, dut.u_regfile.dbg_c); errors=errors+1; end
+        if (errors==0) $display("3D2: INC BC matches oracle (BC=0x0000)");
+
+        // ---- 3D: DEC HL (LD HL,0; DEC HL -> 0xFFFF) ----
+        errors = 0;
+        run_prog(8'h21, 8'h00, 8'h00, 8'h2B, 8'h76, 8'h00, 8'h00, 8'h00, 5);  // LD HL,0; DEC HL; HALT
+        repeat(200) @(posedge clk);
+        if (dut.u_regfile.dbg_h !== 8'hFF || dut.u_regfile.dbg_l !== 8'hFF) begin $display("FAIL 3D3: HL=%h%h (oracle 0xFFFF)", dut.u_regfile.dbg_h, dut.u_regfile.dbg_l); errors=errors+1; end
+        if (errors==0) $display("3D3: DEC HL matches oracle (HL=0xFFFF)");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A/3B/3C/3E/3F/3F5 object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC/DEC) matches oracle");
+            $display("PASS: Phase 3A-3F/3F5/3D object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP/INC-DEC r/16-bit) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;
     end
 
     initial begin
-        #1000000;
+        #5000000;
         $display("FAIL: watchdog timeout");
         $finish;
     end

@@ -1079,6 +1079,73 @@ INC/DEC r is the most-used Z80 instruction and the key that unblocks real counte
 - Synth: 0 errors. `make test` green.
 - Slips: P6 done (Step 14). 3F.5 milestone slip to follow.
 
+## Step 16: Build Phase 3 — milestone 3D (16-bit: LD rr,nn / INC rr / DEC rr / ADD HL,rr)
+
+This step added the 16-bit register-pair operations (LD rr,nn, INC rr, DEC rr, ADD HL,rr) reusing the 16-bit pair access added to obj_regfile in 3F (indices 9=BC,10=DE,11=HL; SP lives in obj_pc). Three differential tests pass against the oracle: ADD HL,BC (LD BC,2; LD HL,0x0FFF; ADD HL,BC → HL=0x1001, H set), INC BC (0xFFFF→0x0000), DEC HL (0→0xFFFF). ADD HL,rr correctly sets only H/C/N (preserving S/Z/PV, copying F5/F3 from the result high byte — the model's `_add16` semantics). The decode added ~16 states for the four ops, handling the SP-vs-regfile split (rp 3 = SP in obj_pc via SP_SET/SP_INC/SP_DEC/SP_READ; rp 0-2 = regfile pairs). Synth clean; full regression green.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Add 3D — the 16-bit register-pair ops (LD rr,nn, INC/DEC rr, ADD HL,rr), differential-tested against the oracle, reusing the 16-bit pair access from 3F.
+
+**Inferred user intent:** A Z80 with 16-bit arithmetic so programs can use loop counters and pointer arithmetic (HL/BC/DE/SP), the common 16-bit idiom.
+
+**Commit (code/docs):** (this step) Phase 3D 16-bit.
+
+### What I did
+- Added helpers: `rp_of` (rp=(opc>>4)&3), `is_ld_rr_nn`/`is_inc_rr`/`is_dec_rr`/`is_add_hl_rr` (the 0x01/0x03/0x0B/0x09 families), `pair_idx_of` (rp 0-2 → regfile idx 9-11; rp 3 = SP handled via obj_pc).
+- Added ~16 decode states: S_LDRR_LO/INC1/HI/INC2/WRITE (LD rr,nn); S_INCRR_READ/WRITE and S_DECRR_READ/WRITE (INC/DEC rr, no flags); S_ADDHL_READ_HL/READ_RR/WRITE/READ_F/WRITE_F (ADD HL,rr with H/C/N flags preserving S/Z/PV).
+- The SP split: rp 3 reads/writes SP via obj_pc (SP_READ/SP_SET/SP_INC/SP_DEC); rp 0-2 via the regfile pair access. Stashed rp in r_src[1:0].
+- ADD HL,rr flags: computed H (bit-11 carry) and C (bit-15 carry) in S_ADDHL_READ_RR, then S_ADDHL_READ_F reads current F and S_ADDHL_WRITE_F writes `(F & S|Z|PV) | H|C | (result_hi & F5|F3)` (clearing N), matching the model's `_add16`.
+- Added 16-bit ops to zasm.py (INC/DEC rr = 0x03/0x0B | rp<<4; ADD HL,rr = 0x09 | rp<<4; LD rr,nn already existed).
+- Added 3 differential tests (3D1 ADD HL,BC → 0x1001 H; 3D2 INC BC 0xFFFF→0; 3D3 DEC HL 0→0xFFFF).
+- Confirmed synthesis (0 errors) and the full regression. Verified the ADD HL,BC integration via run_integ.py (model==RTL) as a cross-check.
+
+### Why
+3D's exit (design doc §13) is "16-bit + IX/IY" — the 16-bit half (LD rr,nn/INC/DEC rr/ADD HL,rr) is the high-value part (loop counters, pointer arithmetic); IX/IY (the DD/FD prefixes) is a larger add deferred to the prefix milestone. Reusing the 3F regfile pair access meant INC/DEC rr and LD rr,nn were 2-state read-modify-writes; only ADD HL,rr needed the flag-merge subtlety (preserve S/Z/PV, set H/C/N, copy F5/F3).
+
+### What worked
+- The 16-bit pair access (idx 9-12) from 3F made INC/DEC rr and LD rr,nn trivial (read pair, ±1 or load, write pair, no flags). The SP split (obj_pc for rp 3) was a clean if/else per state.
+- The integration harness (run_integ.py) confirmed ADD HL,BC model==RTL before I fixed the tb_z80_core watchdog, isolating the testbench issue from the RTL.
+- The ADD HL flag-merge (read F, keep S/Z/PV, set H/C, clear N, copy F5/F3) matched the oracle's `_add16` exactly (F=0x10 = H for the 0xFFF+2 case).
+
+### What didn't work
+- **Stale vvp after a watchdog edit** — I edited the tb_z80_core watchdog from 1ms to 5ms but didn't recompile; the old vvp still fired at 1ms and I misread it as a 3D hang. Recompiling showed all 3D tests pass. (The integration harness passing was the clue that the RTL was fine.)
+- **Enum overflow** (~50 states in 6 bits) — widened to 7 bits.
+
+### What I learned
+- The SP-vs-regfile split is the main complexity of 16-bit ops: SP lives in obj_pc (a different slave), so every 16-bit read/write branches on rp==3. Keeping SP in obj_pc (not the regfile) was the 3F design choice; 3D bears the cost but it's a clean per-state if/else.
+- ADD HL,rr's flag model (preserve S/Z/PV, set H/C/N, copy F5/F3) is distinct from the 8-bit ALU; doing it in the decode (not obj_alu) avoided widening the ALU's rdata to fit a 16-bit result + flags. A 16-bit ALU object is a future refactor if more 16-bit ops appear.
+- The integration harness is the fastest debugger: it runs the same assembled bytes through model + RTL, so a pass there isolates testbench issues from RTL bugs.
+
+### What was tricky to build
+- The ADD HL flag preservation. Symptom: a naive write of just H/C/N would clobber S/Z/PV. Resolution: S_ADDHL_READ_F reads the current F, and S_ADDHL_WRITE_F writes the merged `(F & 0xC4) | H | C | (result_hi & 0x28)` (N cleared by omission).
+- The SP-split across read and write states (each of S_LDRR_WRITE/S_INCRR_READ+WRITE/S_DECRR_READ+WRITE/S_ADDHL_READ_RR branches on rp==3 for obj_pc vs regfile). Verbose but mechanical.
+
+### What warrants a second pair of eyes
+- The ADD HL flag F5/F3 copy (`add16_res[15:8] & 0x28`) — the model's `_add16` does `f |= (r>>8) & (F_F5|F_F3)`; the RTL matches (3D1 has result 0x1001, high byte 0x10, F5/F3 = 0, so not exercised — add a test with a result high byte having bits 5/3 set).
+- The SP variants (ADD HL,SP, INC SP, DEC SP, LD SP,nn) — 3D1-3D3 test BC/HL; add SP tests.
+- The DEC rr wrap (0x0000 → 0xFFFF) — 3D3 covers HL; confirm BC/DE/SP wrap too.
+
+### What should be done in the future
+- Memory-operand LDs (LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn)/LD (nn),A) so programs can touch RAM — the last big ISA gap before the prefixes.
+- The DD/FD (IX/IY), CB (shifts/bits), ED (block) prefixes — the largest remaining ISA add.
+- A 16-bit ALU object (refactor ADD HL out of the decode) if more 16-bit ops appear (ADC HL, SBC HL — not in the baseline).
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: ... 16-bit ... matches oracle`.
+- `make test` — expect mesh + object graph (with 16-bit) + 49 model + 16 assembler + 6 integration.
+- `python3 sim/run_integ.py <t3d.asm>` (LD BC,2; LD HL,0x0FFF; ADD HL,BC; HALT) — expect PASS, HL=0x1001.
+- Read `obj_decode.sv`'s S_LDRR_*/S_INCRR_*/S_DECRR_*/S_ADDHL_* states and the `pair_idx_of`/`rp_of` helpers.
+
+### Technical details
+- Files: `rtl/obj_decode.sv` (+~16 16-bit states, +helpers), `tools/zasm.py` (+INC/DEC rr, ADD HL,rr).
+- Oracle: ADD HL,BC → HL=0x1001 H; INC BC 0xFFFF→0; DEC HL 0→0xFFFF. RTL matches.
+- Synth: 0 errors. `make test` green (mesh + object graph + 49 model + 16 asm + 6 integ).
+- Enum widened to 7 bits (~50 states).
+- Slips: 3F.5 done (Step 15). 3D milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

@@ -139,3 +139,12 @@ Step 15 / Phase 3F.5: added INC/DEC r (porting _inc8/_dec8, C preserved). ALU +A
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/programs/blink.asm — Real blinking-LED demo (LD/DEC/JR/LD (nn),A loop drives GPIO bit 0)
 
+
+## 2026-08-28
+
+Step 16 / Phase 3D: added 16-bit register-pair ops (LD rr,nn/INC rr/DEC rr/ADD HL,rr), reusing 3F's 16-bit pair access. decode +~16 states (LDRR/INCRR/DECRR/ADDHL), SP split (rp3->obj_pc SP_SET/INC/DEC/READ, rp0-2->regfile pairs idx 9-11). ADD HL,rr sets only H/C/N preserving S/Z/PV + F5/F3 from result hi (model _add16). zasm +INC/DEC rr + ADD HL,rr. 3 differential tests PASS (ADD HL,BC->0x1001 H; INC BC FFFF->0; DEC HL 0->FFFF). Integration harness cross-check PASS. Synth clean. Enum ->7 bits. make test green.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_decode.sv — Z80 decode master (3A-3F/3F5/3D: +16-bit LD/INC/DEC/ADD HL)
+

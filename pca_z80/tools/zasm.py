@@ -108,7 +108,19 @@ def encode(op, operands_list, addr, symtab, pass2):
             # INC r / DEC r: 0x04|0x08*reg or 0x05..., base (o&0xC7): INC=0x04, DEC=0x05, r=(opc>>3)
             base = 0x04 if o == "INC" else 0x05
             return [base | (R8[r] << 3)]
+        # INC rr / DEC rr: 0x03|(rp<<4) / 0x0B|(rp<<4), rp 0=BC,1=DE,2=HL,3=SP
+        if r in ("BC","DE","HL","SP"):
+            rp = {"BC":0,"DE":1,"HL":2,"SP":3}[r]
+            base = 0x03 if o == "INC" else 0x0B
+            return [base | (rp << 4)]
         raise AsmError("INC/DEC form not supported: %s" % operands)
+    if o == "ADD":
+        # ADD HL,rr (0x09|(rp<<4)) — the 16-bit add; rp 0=BC,1=DE,2=HL,3=SP
+        if len(operands) >= 2 and operands[0].strip().upper() == "HL":
+            rr = operands[1].strip().upper()
+            if rr in ("BC","DE","HL","SP"):
+                rp = {"BC":0,"DE":1,"HL":2,"SP":3}[rr]
+                return [0x09 | (rp << 4)]
     if o == "LD":
         a, b = operands
         au, bu = a.strip().upper(), b.strip().upper()

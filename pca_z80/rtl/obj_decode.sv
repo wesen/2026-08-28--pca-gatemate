@@ -30,7 +30,7 @@ module obj_decode (
     output logic        dbg_halted,
     output logic        dbg_faulted
 );
-    typedef enum logic [5:0] {
+    typedef enum logic [6:0] {
         S_FETCH_PC, S_FETCH_OP, S_INC_OP, S_DECODE,
         S_FETCH_IMM, S_INC_IMM,
         S_REG_READ_SRC, S_REG_WRITE_DST,
@@ -45,6 +45,10 @@ module obj_decode (
         S_POP_SPLO, S_POP_INC1, S_POP_SPHI, S_POP_SPLO2, S_POP_WRITE,
         S_LDNA_LO, S_LDNA_INC, S_LDNA_HI, S_LDNA_INC2, S_LDNA_WRITE, S_LDNA_COMMIT,
         S_INCR_READ_R, S_INCR_READ_F, S_INCR_ALU, S_INCR_WRITE_R, S_INCR_WRITE_F,
+        S_LDRR_LO, S_LDRR_INC1, S_LDRR_HI, S_LDRR_INC2, S_LDRR_WRITE,
+        S_INCRR_READ, S_INCRR_WRITE,
+        S_DECRR_READ, S_DECRR_WRITE,
+        S_ADDHL_READ_HL, S_ADDHL_READ_RR, S_ADDHL_WRITE, S_ADDHL_READ_F, S_ADDHL_WRITE_F,
         S_HALT, S_FAULT
     } state_e;
     state_e state;
@@ -76,6 +80,8 @@ module obj_decode (
     logic [15:0] push_val;    // PUSH value
     logic [15:0] pop_val;     // POP value
     logic [1:0]  pp;         // push/pop pair index
+    logic [15:0] pair_val;   // 16-bit pair read/write value (3D)
+    logic [15:0] add16_res;  // 16-bit ADD HL,rr result (3D)
 
     assign dbg_ir     = ir;
     assign dbg_pc_val = pc_val;
@@ -152,6 +158,26 @@ module obj_decode (
     endfunction
     function automatic logic is_dec_r(input logic [7:0] o);
         is_dec_r = ((o & 8'hC7) == 8'h05) & (((o>>3)&7) != 3'd6);
+    endfunction
+    // 16-bit ops (3D): rp = (o>>4)&3 -> 0=BC,1=DE,2=HL,3=SP
+    function automatic logic [1:0] rp_of(input logic [7:0] o);
+        rp_of = (o >> 4) & 8'h03;
+    endfunction
+    function automatic logic is_ld_rr_nn(input logic [7:0] o);
+        is_ld_rr_nn = (o & 8'hCF) == 8'h01;   // 0x01,0x11,0x21,0x31
+    endfunction
+    function automatic logic is_inc_rr(input logic [7:0] o);
+        is_inc_rr = (o & 8'hCF) == 8'h03;     // 0x03,0x13,0x23,0x33
+    endfunction
+    function automatic logic is_dec_rr(input logic [7:0] o);
+        is_dec_rr = (o & 8'hCF) == 8'h0B;     // 0x0B,0x1B,0x2B,0x3B
+    endfunction
+    function automatic logic is_add_hl_rr(input logic [7:0] o);
+        is_add_hl_rr = (o & 8'hCF) == 8'h09;  // 0x09,0x19,0x29,0x39
+    endfunction
+    // regfile pair index for rp 0-2: 9=BC,10=DE,11=HL; rp 3 = SP (in obj_pc)
+    function automatic logic [3:0] pair_idx_of(input logic [1:0] rp);
+        pair_idx_of = 4'd9 + {2'b00, rp};   // 9,10,11 for rp 0,1,2
     endfunction
     // push/pop reg-pair index: 0=BC,1=DE,2=HL,3=AF (matches RP_PUSH table)
     function automatic logic [1:0] pp_idx(input logic [7:0] o);
@@ -315,6 +341,19 @@ module obj_decode (
                         r_src <= (ir >> 3) & 7;
                         alu_op <= 4'd9;  // ALU_DEC
                         state  <= S_INCR_READ_R;
+                    end else if (is_ld_rr_nn(ir)) begin
+                        // LD rr,nn (3D)
+                        r_src <= {2'b00, rp_of(ir)};  // stash rp in r_src[1:0]
+                        state  <= S_LDRR_LO;
+                    end else if (is_inc_rr(ir)) begin
+                        r_src <= {2'b00, rp_of(ir)};
+                        state  <= S_INCRR_READ;
+                    end else if (is_dec_rr(ir)) begin
+                        r_src <= {2'b00, rp_of(ir)};
+                        state  <= S_DECRR_READ;
+                    end else if (is_add_hl_rr(ir)) begin
+                        r_src <= {2'b00, rp_of(ir)};
+                        state  <= S_ADDHL_READ_HL;
                     end else begin
                         faulted <= 1'b1;
                         state   <= S_FAULT;
@@ -899,6 +938,181 @@ module obj_decode (
                     end
                 end
                 S_INCR_WRITE_F: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_WRITE; bus_req.wdata <= {8'h00, alu_flags};
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ===================== 3D: 16-bit ops =====================
+                // ---- LD rr,nn: fetch lo, inc PC, fetch hi, inc PC, write pair ----
+                S_LDRR_LO: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        pair_val[7:0] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDRR_INC1;
+                    end
+                end
+                S_LDRR_INC1: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDRR_HI;
+                    end
+                end
+                S_LDRR_HI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        pair_val[15:8] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDRR_INC2;
+                    end
+                end
+                S_LDRR_INC2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDRR_WRITE;
+                    end
+                end
+                S_LDRR_WRITE: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        if (r_src[1:0] == 2'd3) begin
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_SET; bus_req.wdata <= pair_val;
+                        end else begin
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= pair_val;
+                        end
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- INC rr: read pair, +1, write pair (no flags) ----
+                S_INCRR_READ: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        if (r_src[1:0] == 2'd3) begin
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                        end else begin
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= 16'h0000;
+                        end
+                    end else if (bus_resp.ack) begin
+                        pair_val    <= (bus_resp.rdata + 16'h0001) & 16'hFFFF;
+                        bus_req.req <= 1'b0;
+                        state       <= S_INCRR_WRITE;
+                    end
+                end
+                S_INCRR_WRITE: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        if (r_src[1:0] == 2'd3) begin
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_SET; bus_req.wdata <= pair_val;
+                        end else begin
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= pair_val;
+                        end
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- DEC rr: read pair, -1, write pair (no flags) ----
+                S_DECRR_READ: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        if (r_src[1:0] == 2'd3) begin
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                        end else begin
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= 16'h0000;
+                        end
+                    end else if (bus_resp.ack) begin
+                        pair_val    <= (bus_resp.rdata - 16'h0001) & 16'hFFFF;
+                        bus_req.req <= 1'b0;
+                        state       <= S_DECRR_WRITE;
+                    end
+                end
+                S_DECRR_WRITE: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        if (r_src[1:0] == 2'd3) begin
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_SET; bus_req.wdata <= pair_val;
+                        end else begin
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= pair_val;
+                        end
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- ADD HL,rr: read HL, read rr, 16-bit add, write HL + flags (H/C/N only) ----
+                S_ADDHL_READ_HL: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= 16'h000B; bus_req.wdata <= 16'h0000;  // HL = idx 11
+                    end else if (bus_resp.ack) begin
+                        alu_a      <= bus_resp.rdata[7:0];   // reuse: hold HL low? store full in pair_val
+                        pair_val   <= bus_resp.rdata;        // HL
+                        bus_req.req <= 1'b0;
+                        state       <= S_ADDHL_READ_RR;
+                    end
+                end
+                S_ADDHL_READ_RR: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        if (r_src[1:0] == 2'd3) begin
+                            bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                        end else begin
+                            bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, pair_idx_of(r_src[1:0])}; bus_req.wdata <= 16'h0000;
+                        end
+                    end else if (bus_resp.ack) begin
+                        // 16-bit add: pair_val (HL) + rdata (rr). flags H/C/N only.
+                        add16_res  <= (pair_val + bus_resp.rdata) & 16'hFFFF;
+                        // H: from bit 11 carry; C: from bit 15 carry; N cleared.
+                        alu_flags  <= (((pair_val & 16'h0FFF) + (bus_resp.rdata & 16'h0FFF)) > 16'h0FFF ? 8'h10 : 8'h00)  // H
+                                      | (((pair_val + bus_resp.rdata) > 16'hFFFF) ? 8'h01 : 8'h00);  // C
+                        bus_req.req <= 1'b0;
+                        state       <= S_ADDHL_WRITE;
+                    end
+                end
+                S_ADDHL_WRITE: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= 16'h000B; bus_req.wdata <= add16_res;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_ADDHL_READ_F;
+                    end
+                end
+                S_ADDHL_READ_F: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        // preserve S/Z/PV (0x80|0x40|0x04); set H/C; clear N; F5/F3 from result high byte.
+                        alu_flags  <= (bus_resp.rdata[7:0] & 8'hC4)        // S|Z|PV
+                                      | (alu_flags & 8'h11)                 // H|C computed earlier
+                                      | (add16_res[15:8] & 8'h28);          // F5|F3 from result high byte
+                        bus_req.req <= 1'b0;
+                        state       <= S_ADDHL_WRITE_F;
+                    end
+                end
+                S_ADDHL_WRITE_F: begin
                     if (!bus_req.req) begin
                         bus_req.req <= 1'b1; bus_req.we <= 1'b1;
                         bus_req.obj <= z80_obj::OBJ_FLAGS; bus_req.addr <= z80_obj::FLAGS_WRITE; bus_req.wdata <= {8'h00, alu_flags};
