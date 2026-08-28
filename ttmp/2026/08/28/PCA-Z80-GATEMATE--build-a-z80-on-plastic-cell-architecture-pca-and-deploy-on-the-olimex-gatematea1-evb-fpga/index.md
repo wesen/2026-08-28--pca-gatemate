@@ -45,7 +45,9 @@ RelatedFiles:
     - Path: repo://pca_z80/rtl/top.sv
       Note: Phase 0 placeholder top (counter-LED, proven flow)
     - Path: repo://pca_z80/rtl/z80_core.sv
-      Note: Z80 object graph (master + pc/memio slaves on held-request bus)
+      Note: |-
+        Z80 object graph (master + pc/memio slaves on held-request bus)
+        Z80 object graph (master + 5 slaves)
     - Path: repo://pca_z80/sim/run_integ.py
       Note: Phase 5 differential harness (assemble -> model + object graph -> compare)
     - Path: repo://pca_z80/sim/tb_pca_mesh.sv
@@ -62,6 +64,7 @@ LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
 
 
 

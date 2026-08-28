@@ -166,3 +166,12 @@ Step 18 / Phase 3D.6: added CB-prefixed shifts/bits (RLC/RRC/RL/RR/SLA/SRA/SRL +
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_alu.sv — Z80 ALU (8-bit ALU + INC/DEC + CB shifts, flag model ported from z80_model.py)
 
+
+## 2026-08-28
+
+Step 19: wrote the engineering report (design-doc 02, design-doc §4.20) summarizing architecture/ISA/software/verification/FPGA implementation (6026 LUT 15%, 51.4 MHz 5x margin, 220KB bitstream)/hardware/limitations/reproducibility/bug diary. Bundle-uploaded the report + intern guide + diary to reMarkable at /ai/2026/08/28/PCA-Z80-GATEMATE (verified on device, 2 docs). doctor clean.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/02-pca-z80-engineering-report.md — Engineering report (Phase 6 §4.20 deliverable)
+

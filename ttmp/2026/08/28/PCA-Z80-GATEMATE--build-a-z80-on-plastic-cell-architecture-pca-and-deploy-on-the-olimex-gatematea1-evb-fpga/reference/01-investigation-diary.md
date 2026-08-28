@@ -1281,6 +1281,10 @@ The CB prefix is the self-contained bit-manipulation family (shifts + bit test/s
 - alu_op widened to 5 bits (ALU_SRL=16).
 - Slips: 3D.5 done (Step 17). 3D.6 milestone slip to follow.
 
+## Step 19: Write the engineering report + reMarkable upload
+
+This step wrote the engineering report (design-doc 02, design-doc §4.20) summarizing the whole build — architecture (PCA substrate + Z80 object graph), the implemented ISA, the software (model/assembler/harness), the verification pyramid, the FPGA implementation (6026 LUTs 15%, 51.4 MHz 5× margin, 220 KB bitstream), the sim-verified LED blink, the limitations (no DD/FD/ED prefixes, memory-mapped GPIO, mesh not wired to Z80, board load pending), reproducibility, a bug diary, and the conclusion. The report is a concrete deliverable for review/handoff. (reMarkable upload to follow.)
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
