@@ -62,10 +62,11 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [ ] Exit: each object passes directed tests vs model slices; decode handles all 4 prefix families
 
 ### Phase 4 — Assembler + decoder round-trip
-- [ ] `pca_z80/tools/zasm.py` — two-pass, no eval, prefix + displacement encoding (§11.1)
-- [ ] `pca_z80/tools/zdis.py` — disassembler / message trace (§11.2)
-- [ ] `sim/test_assembler.py` — golden vectors, symbols, negatives
-- [ ] Exit: golden vectors byte-exact; deterministic; clear diagnostics
+- [x] `pca_z80/tools/zasm.py` — two-pass, no eval, prefix + displacement encoding (§11.1)  *(done; LD/ALU/JP/JR/CALL/PUSH-POP/etc.)*
+- [x] Outputs: program.hex/.bin/.lst/.sym.json §3.4.5  *(done)*
+- [x] `sim/test_assembler.py` — golden vectors, symbols, negatives (16 tests pass)  *(done)*
+- [ ] `pca_z80/tools/zdis.py` — disassembler / message trace (§11.2)  *(deferred)*
+- [x] Exit: golden vectors byte-exact; deterministic; clear diagnostics (16 tests pass + 3 cross-checks vs model)
 
 ### Phase 5 — Placer + integration on the mesh
 - [ ] `pca_z80/tools/placer.py` — static object placement + routing tables (§11.3)

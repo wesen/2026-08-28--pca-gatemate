@@ -44,6 +44,8 @@ RelatedFiles:
       Note: Z80 object graph (master + pc/memio slaves on held-request bus)
     - Path: repo://pca_z80/sim/tb_pca_mesh.sv
       Note: Phase 1 substrate tests (routing + single-ack + anti-double)
+    - Path: repo://pca_z80/sim/test_assembler.py
+      Note: 16 assembler tests (golden vectors + assemble->model cross-checks)
     - Path: repo://pca_z80/sim/test_model.py
       Note: 49 hand-computed Z80 model unit tests
     - Path: repo://pca_z80/tools/z80_isa.py
@@ -54,6 +56,7 @@ LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
 
 
 

@@ -47,9 +47,9 @@ versions:
 	  python3 --version 2>&1; \
 	} | tee $(BUILD)/tool-versions.txt
 
-# Pure-software unit tests (Phase 2): reference model + ISA. Phase 1+3: substrate + object-graph sim.
+# Pure-software unit tests (Phase 2+4): model + ISA + assembler. Phase 1+3: substrate + object-graph sim.
 .PHONY: test
-test: sim_mesh sim_core test_model
+test: sim_mesh sim_core test_model test_assembler
 
 # Phase 3 object-graph simulation (directed differential vs the oracle).
 .PHONY: sim_core
@@ -62,6 +62,11 @@ sim_core:
 .PHONY: test_model
 test_model:
 	python3 -m pytest sim/test_model.py -q
+
+# Phase 4 assembler tests (golden vectors + assemble->model cross-check).
+.PHONY: test_assembler
+test_assembler:
+	python3 -m pytest sim/test_assembler.py -q
 
 # Phase 1 substrate simulation.
 .PHONY: sim_mesh

@@ -805,6 +805,74 @@ This step added the stack object (SP folded into obj_pc) and the stack instructi
 - Stack layout: dec SP by 2; high byte at SP+1, low at SP (matches oracle's push: dec, write high; dec, write low).
 - Slips: 3E done (Step 10). 3F milestone slip to follow.
 
+## Step 12: Build Phase 4 — the Z80 assembler (zasm.py)
+
+This step built the two-pass Z80 assembler `zasm.py` (no `eval`, DR-9) targeting the implemented instruction set (NOP/HALT/LD r,n/LD r,r'/LD rr,nn/8-bit ALU A,r/A,n/JP nn/JP cc,nn/JR e/JR cc,e/CALL nn/CALL cc,nn/RET/PUSH rr/POP rr/DI/EI/RLCA/EXX), with 16 golden-vector tests + 3 assemble→model cross-check tests, all passing. The assembler emits program.hex/.bin/.lst/.sym.json and computes JR displacements relative to the PC after the JR (the Z80 convention). A real program (LD A,0x0F; ADD A,1; LD B,A; JR loop; NOP; loop: LD C,0x22; PUSH BC; POP DE; HALT) assembles to 13 bytes and runs on the model with the expected state (A=0x10, B=0x10, C=0x22, D=0x10, E=0x22), proving the assembler's output is executable Z80 the oracle agrees with. This unblocks Phase 5/6: real programs can now be written, assembled, and (once integrated) run on the object graph and the board.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Build Phase 4 — the two-pass assembler with golden-vector and cross-check tests, committing and slip-printing.
+
+**Inferred user intent:** A working assembler so real Z80 programs can be written and assembled for the object graph / board.
+
+**Commit (code/docs):** (this step) Phase 4 assembler.
+
+### What I did
+- Wrote `tools/zasm.py` (~250 lines): two-pass assembler. Pass 1 parses to an IR (label/op/operands), strips comments, handles labels (`label:`), `.ORG`, and `label EQU value`, sizes each instruction (`size_of`), and assigns addresses. Pass 2 resolves symbols and emits bytes little-endian via `encode`. A tiny hand-written expression evaluator (`parse_imm`: literal/label ± offset, hex `0x`/`$`/decimal) — never `eval` (the sibling MATE-16 DR-9 safety rule). Outputs program.hex (one 2-digit byte/line for `$readmemh`), .bin, .lst, .sym.json.
+- Covers: NOP/HALT/RET/DI/EI/RLCA/RRCA/RLA/RRA/EXX (1 byte); LD r,n / LD r,r' / LD rr,nn; ADD/ADC/SUB/SBC/AND/XOR/OR/CP A,r and A,n (the `ADD A,r` and `SUB r` forms); JP nn / JP cc,nn (all 8 cc); JR e / JR cc,e (NZ/Z/NC/C) with the displacement computed as `target - (addr+2)`; CALL nn / CALL cc,nn; PUSH/POP rr (BC/DE/HL/AF).
+- Wrote `sim/test_assembler.py`: 16 tests — golden vectors for each form (LD r,n/r,r'/rr,nn; ALU A,n/r; JP/JR/CALL/PUSH/POP; DI/EI/RLCA/EXX; JR-label forward displacement) + 3 cross-checks (assemble→`z80_model.py` run→state matches: an ALU+JR+PUSH/POP loop program, a CALL/RET program, a backward-JR loop cap). Plus a determinism test.
+- Fixed: the operand comma-split (the parser kept `LD A,0x42` as one string; added `split_operands`); LD rr,nn sizing (was 2, is 3); the `.ORG` parse (`int(...,0)` on `$`-hex); the JP/JR/CALL cc form (used `len(operands)>=2` not `","in operands[0]` since operands are pre-split); the JR-label test expectations (the displacement is `target-(addr+2)`, so a label after a NOP is +1 not +0).
+- Wired `test_assembler` into the Makefile `test` target; full regression green (mesh + object graph + 49 model tests + 16 assembler tests).
+
+### Why
+Phase 4's exit (design doc §13) is "golden vectors byte-exact; deterministic; clear diagnostics" — the assembler is the bridge from human-written Z80 to the object graph and the board. Doing it now (after the core ISA in 3A-3F, before Phase 5 integration) means Phase 5 can write real programs, assemble them, and differential-test the integrated mesh+object graph against the model running the same assembled bytes. The no-`eval` rule (DR-9) matters because the assembler runs on student source files.
+
+### What worked
+- The two-pass structure (size → assign addresses → resolve → emit) handled forward references (JR to a label defined later) cleanly; the JR displacement formula `target-(addr+2)` matched the model.
+- The cross-check tests (assemble→model run→state) are the strongest proof: they show the assembler's bytes are *executable* Z80, not just well-formed bytes. The ALU+JR+PUSH/POP program ran to A=0x10/B=0x10/C=0x22/D=0x10/E=0x22, exactly the hand-computed expectation.
+- Golden vectors caught the LD rr,nn sizing bug (was 2 bytes, emitted out-of-range; the test failed, I fixed the sizer to 3).
+
+### What didn't work
+- **Operand comma-split**: the parser stored operands as one string (`"A, 0x42"`); `size_of`/`encode` expected a 2-element list. Fixed with `split_operands` (split on first comma).
+- **LD rr,nn sizing** was 2 (the generic LD r,n default); the golden vector `LD BC,0x1234` failed; fixed the sizer to 3 for BC/DE/HL/SP.
+- **`.ORG` with `$`-hex**: `int("$1000",0)` raises; added explicit `0x`/`$`/decimal handling.
+- **JP/JR/CALL cc form**: the old `if "," in operands[0]` checked the wrong thing after the operand split (operands[0] is just "NZ"); fixed to `len(operands)>=2`.
+- **JR-label test expectations**: I first wrote `18 00` (disp 0) but the label is after a NOP, so disp is +1; fixed the test (the assembler was right).
+
+### What I learned
+- The JR displacement convention (`target - (addr+2)`, relative to the PC after the 2-byte JR) is easy to get off-by-one; the cross-check against the model (which uses the same convention) is the safety net. Forward and backward JR both work.
+- Two-pass with a tiny hand-written expression evaluator is enough for the baseline; `eval` would be shorter but unsafe (DR-9). The evaluator handles label, number, and `label±offset`, which covers every realistic addressing mode the baseline needs.
+- The assembler + model + object graph now form a closed loop: write .asm → zasm.py → bytes → z80_model.py (oracle) AND → object graph (RTL), both expected to agree. Phase 5 closes the RTL half by loading the assembled bytes into the memory object.
+
+### What was tricky to build
+- Operand parsing consistently. Symptom: several tests failed with unpacking errors or "undefined symbol NZ" because the operand representation differed between `size_of` and `encode`. Resolution: a single `split_operands` helper used by both, returning a list split on the first comma.
+- The JR displacement off-by-one (see What didn't work). The model and the assembler must use the *same* convention; the cross-check test is the proof they do.
+
+### What warrants a second pair of eyes
+- The `LD rr,nn` register-pair encoding (`0x01 | (rp<<4)`, rp=BC0/DE1/HL2/SP3) — the golden vector covers BC and HL; add DE and SP.
+- The JR cc displacement for the *not-taken* path (the assembler emits the displacement regardless; the object graph's `cc_taken` decides). Confirm a JR cc that is not taken still advances PC past the 2 bytes (the object graph's S_JR_INC handles this; the assembler just emits the bytes).
+- The ALU single-operand form (`SUB 3` without `A`) — the assembler accepts it and maps to `SUB A,3` (0xD6 03); confirm this matches the model (it does: the model's `_exec_main` ALU A,n path is reached by opcode 0xD6).
+
+### What should be done in the future
+- Phase 5: load the assembled `program.bin` into the object graph's `obj_memio` ROM (replace the testbench's manual `rom[i]=` writes) and differential-test the integrated object graph against the model running the same assembled program.
+- Add the memory-operand LDs (LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn)) and 16-bit (3D) to both the assembler and the object graph so real programs can touch memory.
+- Add a disassembler (`zdis.py`) for the message-trace debug view (design-doc §11.2).
+
+### Code review instructions
+- `cd pca_z80 && make test_assembler` — expect `16 passed`.
+- `make test` — expect mesh PASS, object graph 3A-3F PASS, 49 model tests, 16 assembler tests.
+- `python3 tools/zasm.py programs/<x>.asm -o build -n <x>` then inspect `build/<x>.hex` and `.lst`.
+- Read `tools/zasm.py` `size_of`/`encode`/`split_operands`/`parse_imm`; confirm no `eval`.
+
+### Technical details
+- Files: `tools/zasm.py` (~250 lines), `sim/test_assembler.py` (16 tests).
+- Outputs: program.hex (2-digit/line for $readmemh), .bin, .lst, .sym.json.
+- Cross-check program (13 bytes): LD A,0x0F; ADD A,1; LD B,A; JR loop; NOP; loop: LD C,0x22; PUSH BC; POP DE; HALT → A=0x10 B=0x10 C=0x22 D=0x10 E=0x22, count=8. Model agrees.
+- `make test`: mesh + object graph (3A-3F) + 49 model + 16 assembler tests.
+- Slips: P4 START printed. P4 DONE to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

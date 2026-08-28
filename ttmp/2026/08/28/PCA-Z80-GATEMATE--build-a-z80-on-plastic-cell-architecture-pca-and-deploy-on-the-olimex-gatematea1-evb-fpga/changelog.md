@@ -103,3 +103,12 @@ Step 11 / Phase 3F: added the stack (SP in obj_pc) + CALL/RET/PUSH/POP. obj_pc r
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_pc.sv — Z80 PC + SP + R object (held-request bus slave, 7 sub-ops)
 
+
+## 2026-08-28
+
+Step 12 / Phase 4: built the two-pass Z80 assembler zasm.py (no eval, DR-9). Targets the implemented ISA (NOP/HALT/LD r,n/r,r'/rr,nn/8-bit ALU A,r/A,n/JP nn/JP cc,nn/JR e/JR cc,e/CALL nn/CALL cc,nn/RET/PUSH rr/POP rr/DI/EI/RLCA/EXX). Two-pass (size->addr->resolve->emit), tiny hand-written expr evaluator (no eval). Outputs program.hex/.bin/.lst/.sym.json. sim/test_assembler.py: 16 tests (golden vectors + 3 assemble->model cross-checks + determinism) all pass. A real 13-byte program (LD A,0x0F;ADD A,1;LD B,A;JR loop;NOP;loop:LD C,0x22;PUSH BC;POP DE;HALT) assembles and runs on the model with expected state. Fixed operand comma-split, LD rr,nn sizing, .ORG parse, JP/JR/CALL cc form, JR displacement off-by-one. make test = mesh + object graph + 49 model + 16 assembler tests.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/zasm.py — Two-pass Z80 assembler (no eval) targeting the implemented ISA
+
