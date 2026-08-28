@@ -121,3 +121,12 @@ Step 13 / Phase 5: integration — object graph runs assembled Z80, differential
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/sim/tb_z80_integ.sv — Integration testbench (loads assembled .hex via $readmemh, dumps state)
 
+
+## 2026-08-28
+
+Step 14 / Phase 6: Z80 object graph -> GateMate bitstream. Added GPIO output port to obj_memio (write addr 0x0000 -> gpio_out), LD (nn),A (0x32) to decode + assembler, programs/blink.asm (LD A,1; LD (0),A; HALT -> LED on), rtl/top.sv board top (CC_USR_RSTN named connection + reset_sync + z80_core + LED=gpio[0]). ROM init via ROM_FILE macro + $readmemh (Yosys -DROM_FILE). make bit: Yosys synth_gatemate -> nextpnr -> gmpack -> build/top.bit (220KB). Resources 6026 CPE_LT (14%), 2451 CPE_FF (5%), 184 CC_ADDF; timing 51.41 MHz PASS at 10 MHz (5x margin). Fixed: CC_USR_RSTN constant-fold (named connection), string param -> macro. Sim blink: gpio=01 count=3 (LED driven by Z80). Board not connected (no FTDI) -> physical load + LED observation deferred. make test = mesh + object graph + 49 model + 16 assembler + 6 integration tests.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/top.sv — Phase 6 board-facing top (Z80 core + LED=gpio[0], ROM init via ROM_FILE macro)
+

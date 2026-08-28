@@ -28,6 +28,8 @@ RelatedFiles:
       Note: The chronological investigation diary
     - Path: repo://pca_z80/Makefile
       Note: Phase 0 build flow driver
+    - Path: repo://pca_z80/programs/blink.asm
+      Note: Phase 6 LED demo (Z80 LD A,1; LD (0),A; HALT drives GPIO bit 0)
     - Path: repo://pca_z80/programs/selftest.asm
       Note: Phase 5 acceptance program (reaches magic A=8)
     - Path: repo://pca_z80/rtl/obj_decode.sv
@@ -60,6 +62,7 @@ LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
 
 
 

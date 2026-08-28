@@ -43,6 +43,7 @@ module obj_decode (
         S_RET_POPLO, S_RET_INC1, S_RET_POPHI, S_RET_POPLO2, S_RET_SET,
         S_PUSH_READ, S_PUSH_DECSP2, S_PUSH_SPHI, S_PUSH_SPLO, S_PUSH_SPLO2,
         S_POP_SPLO, S_POP_INC1, S_POP_SPHI, S_POP_SPLO2, S_POP_WRITE,
+        S_LDNA_LO, S_LDNA_INC, S_LDNA_HI, S_LDNA_INC2, S_LDNA_WRITE, S_LDNA_COMMIT,
         S_HALT, S_FAULT
     } state_e;
     state_e state;
@@ -139,6 +140,9 @@ module obj_decode (
     function automatic logic is_pop(input logic [7:0] o);
         // C1=BC D1=DE E1=HL F1=AF
         is_pop = (o == 8'hC1) | (o == 8'hD1) | (o == 8'hE1) | (o == 8'hF1);
+    endfunction
+    function automatic logic is_ld_a_nn(input logic [7:0] o);
+        is_ld_a_nn = (o == 8'h32);  // LD (nn),A
     endfunction
     // push/pop reg-pair index: 0=BC,1=DE,2=HL,3=AF (matches RP_PUSH table)
     function automatic logic [1:0] pp_idx(input logic [7:0] o);
@@ -289,6 +293,9 @@ module obj_decode (
                     end else if (is_pop(ir)) begin
                         // POP rr
                         state <= S_POP_SPLO;
+                    end else if (is_ld_a_nn(ir)) begin
+                        // LD (nn),A  (Phase 6: write A to memory[nn], e.g. GPIO)
+                        state <= S_LDNA_LO;
                     end else begin
                         faulted <= 1'b1;
                         state   <= S_FAULT;
@@ -764,6 +771,66 @@ module obj_decode (
                     if (!bus_req.req) begin
                         bus_req.req <= 1'b1; bus_req.we <= 1'b1;
                         bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_SET; bus_req.wdata <= ret_addr;
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- LD (nn),A: fetch addr lo/hi, inc PC past them, read A, write A to mem[addr] ----
+                S_LDNA_LO: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        call_addr[7:0] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDNA_INC;
+                    end
+                end
+                S_LDNA_INC: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDNA_HI;
+                    end
+                end
+                S_LDNA_HI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        call_addr[15:8] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDNA_INC2;
+                    end
+                end
+                S_LDNA_INC2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDNA_WRITE;
+                    end
+                end
+                S_LDNA_WRITE: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= 16'h0007; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        alu_a       <= bus_resp.rdata[7:0];  // reuse alu_a to hold A
+                        bus_req.req <= 1'b0;
+                        state       <= S_LDNA_COMMIT;
+                    end
+                end
+                S_LDNA_COMMIT: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= call_addr; bus_req.wdata <= {8'h00, alu_a};
                     end else if (bus_resp.ack) begin
                         count       <= count + 32'd1;
                         bus_req.req <= 1'b0;

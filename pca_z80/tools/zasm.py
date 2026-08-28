@@ -64,6 +64,7 @@ def size_of(op, operands_list):
     if o == "LD":
         a, b = operands
         if b.startswith("(") or a.startswith("("):
+            # LD (nn),A or LD A,(nn) = 3 bytes
             return 3
         if a.upper() in R8 and b.upper() in R8:
             return 1
@@ -101,6 +102,14 @@ def encode(op, operands_list, addr, symtab, pass2):
     if o == "LD":
         a, b = operands
         au, bu = a.strip().upper(), b.strip().upper()
+        # LD (nn),A  -> 0x32 lo hi
+        if au == "(NN)" or (a.strip().upper().startswith("(") and bu == "A"):
+            # parse the address out of the (nn) operand
+            addr_str = a.strip()
+            if addr_str.startswith("(") and addr_str.endswith(")"):
+                addr_str = addr_str[1:-1]
+            nn = parse_imm(addr_str, symtab, pass2) & 0xFFFF
+            return [0x32, nn & 0xFF, (nn>>8) & 0xFF]
         if au in R8 and bu in R8:
             return [0x40 | (R8[au]<<3) | R8[bu]]
         if au in R8:

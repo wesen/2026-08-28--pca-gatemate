@@ -1,43 +1,55 @@
-// top.sv — Phase 0 board-facing top level for PCA-Z80.
+// top.sv — Phase 6 board-facing top level for PCA-Z80.
 //
-// This is a *placeholder* that proves the open-source flow (Yosys ->
-// nextpnr-himbaechel -> gmpack -> openFPGALoader) works on the GateMateA1-EVB
-// and that the verified board pins are correct. A 24-bit counter drives the
-// LED so the flow's result is observable. The PCA cell + Z80 object graph
-// replace this in Phase 1+ (see design-doc §9, §13). Mirrors the sibling
-// MATE-16 Phase-1 blink_top.
+// Wires the Z80 object graph (z80_core) to the Olimex GateMateA1-EVB pins,
+// with the program ROM initialized at synthesis from build/top_prog.hex via
+// $readmemh. The Z80 program drives GPIO bit 0 (a write to memory address
+// 0x0000), which lights the onboard LED. This is the Phase 6 hardware demo:
+// the LED is driven by Z80 instructions executing on the object graph, not by
+// a hardware counter. Board pins reused unchanged from the sibling MATE-16
+// project (verified against the Cologne Chip datasheet).
 `default_nettype none
 
 module top #(
-    parameter int LED_BIT = 23   // which counter bit drives the LED
+    parameter int ROM_DEPTH = 256
 ) (
     input  logic clk_10m,
-    input  logic fpga_but,        // active-low user button (not used in Phase 0)
-    output logic user_led,
-    output logic uart_tx_pin,     // held idle-high in Phase 0
+    input  logic fpga_but,        // active-low user button (unused in the demo)
+    output logic user_led,        // GPIO bit 0 from the Z80
+    output logic uart_tx_pin,     // held idle-high (UART added later)
     input  logic uart_rx_pin
 );
     logic rst_n;
-    logic [23:0] counter;
+    logic cfg_rst_n;
+    logic [7:0]  dbg_ir, dbg_r, gpio;
+    logic [15:0] dbg_pc, dbg_sp;
+    logic [31:0] dbg_count;
+    logic        dbg_halted, dbg_faulted;
 
     // GateMate configuration-reset primitive (real in synth, modeled in sim).
-    CC_USR_RSTN cc_rstn ();
+    CC_USR_RSTN u_cfg_reset (.USR_RSTN(cfg_rst_n));
 
     reset_sync u_reset (
         .clk    (clk_10m),
-        .arst_n (cc_rstn.USR_RSTN),
+        .arst_n (cfg_rst_n),
         .rst_n  (rst_n)
     );
 
-    always_ff @(posedge clk_10m) begin
-        if (!rst_n)
-            counter <= 24'd0;
-        else
-            counter <= counter + 24'd1;
-    end
+    z80_core #(.ROM_DEPTH(ROM_DEPTH)) u_core (
+        .clk        (clk_10m),
+        .rst_n      (rst_n),
+        .dbg_ir     (dbg_ir),
+        .dbg_pc     (dbg_pc),
+        .dbg_r      (dbg_r),
+        .dbg_sp     (dbg_sp),
+        .gpio_out   (gpio),
+        .dbg_count  (dbg_count),
+        .dbg_halted (dbg_halted),
+        .dbg_faulted(dbg_faulted)
+    );
 
-    assign user_led     = counter[LED_BIT];
-    assign uart_tx_pin   = 1'b1;   // idle high (UART frames added in Phase 5)
+    // The Z80 program drives GPIO bit 0 -> the onboard LED.
+    assign user_led    = gpio[0];
+    assign uart_tx_pin  = 1'b1;   // idle high (UART frames added later)
 endmodule
 
 `default_nettype wire

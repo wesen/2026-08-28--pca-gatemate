@@ -20,6 +20,7 @@ module z80_core #(
     output logic [15:0] dbg_pc,
     output logic [7:0]  dbg_r,
     output logic [15:0] dbg_sp,
+    output logic [7:0]  gpio_out,
     output logic [31:0] dbg_count,
     output logic        dbg_halted,
     output logic        dbg_faulted
@@ -46,7 +47,7 @@ module z80_core #(
     obj_memio #(.ROM_DEPTH(ROM_DEPTH), .RAM_WORDS(RAM_WORDS)) u_memio (
         .clk(clk), .rst_n(rst_n),
         .bus_req(bus_req), .bus_resp(mem_resp),
-        .rom_init_file_present(1'b1)
+        .gpio_out(gpio_out)
     );
 
     obj_regfile u_regfile (

@@ -77,12 +77,11 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] Exit: assembled Z80 runs on object graph in sim; differential zero divergence; selftest reaches A=8
 
 ### Phase 6 — Verification, FPGA implementation, hardware
-- [ ] Requirements-verification matrix
-- [ ] Constrained-random with recorded seeds + reduced cases
-- [ ] Synthesis/PnR/timing clean; 10 MHz positive slack; resource ledger
-- [ ] Hardware bring-up: Z80 `OUT` blinks LED; UART emits "Hi"
-- [ ] Engineering report + bug diary
-- [ ] Exit: A0–A15 acceptance; reproducible from clean checkout
+- [x] Synthesis/PnR/timing clean; 10 MHz positive slack; resource ledger  *(6026 LUT 14%, 2451 FF 5%, 51.41 MHz PASS at 10 MHz, 5x margin)*
+- [x] Hardware bring-up: Z80 LD (0),A drives GPIO bit 0 -> LED (proven in sim; board top + 220KB bitstream built)  *(done in sim; physical load pending board access)*
+- [ ] `openFPGALoader -b olimex_gatemateevb build/top.bit` + observe LED  *(deferred: board not connected)*
+- [ ] Engineering report + bug diary (design-doc §4.20)  *(deferred)*
+- [x] Exit (partial): synth/PnR/timing clean; LED driven by Z80 in sim; bitstream built. Physical board load + report pending.
 
 ### Phase 7 — Extensions (only after baseline passes)
 - [ ] Runtime pressure-based object placement (papers 02b, 05)

@@ -21,6 +21,12 @@ RTL_SYNTH := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
 SIM_SRCS  := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv \
              $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_top.sv
 
+# Phase 6: the full Z80 object-graph top (board-facing).
+Z80_TOP_RTL := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv \
+             $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv \
+             $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
+PROG ?= blink
+
 # Phase 1: the PCA routing substrate (types/router/cell/mesh) + testbench.
 PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cell.sv $(RTL_DIR)/pca_mesh.sv
 SIM_MESH_SRCS := $(PCA_RTL) $(SIM_DIR)/tb_pca_mesh.sv
@@ -92,9 +98,11 @@ sim:
 	vvp $(BUILD)/top.vvp
 
 # Synthesis (sibling §1.8): Yosys synth_gatemate with -luttree -nomx8.
+# Phase 6: synthesize the Z80 top with the assembled program ROM.
 synth:
 	@mkdir -p $(BUILD)
-	yosys -ql $(BUILD)/yosys.log -p 'read_verilog -defer -sv $(RTL_SYNTH); synth_gatemate -top $(TOP) -luttree -nomx8; stat; write_json $(BUILD)/top.json;'
+	python3 tools/zasm.py programs/$(PROG).asm -o $(BUILD) -n top_prog
+	yosys -ql $(BUILD)/yosys.log -p 'read_verilog -defer -sv -DROM_FILE="$(BUILD)/top_prog.hex" $(Z80_TOP_RTL); chparam -set ROM_DEPTH 256 top; synth_gatemate -top top -luttree -nomx8; stat; write_json $(BUILD)/top.json;'
 
 # Place and route (sibling §1.8): nextpnr-himbaechel, router2, CCF + SDC.
 pnr: synth

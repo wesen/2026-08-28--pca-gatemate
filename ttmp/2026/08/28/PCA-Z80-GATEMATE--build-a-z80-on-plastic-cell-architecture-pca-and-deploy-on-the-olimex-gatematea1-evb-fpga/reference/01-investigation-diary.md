@@ -936,6 +936,81 @@ Phase 5's exit (design doc §13) is "assembled Z80 runs on the mesh in simulatio
 - `make test`: mesh + object graph + 49 model + 16 assembler + 6 integration tests.
 - Slips: P5 START printed. P5 DONE to follow.
 
+## Step 14: Build Phase 6 — FPGA synthesis/PnR/timing + board top (hardware load pending board access)
+
+This step brought the Z80 object graph to a GateMate bitstream: added a GPIO output port to `obj_memio` (write to address 0x0000 → gpio_out, the baseline I/O map), added `LD (nn),A` to the decode (so a Z80 program can drive the GPIO), wrote the `programs/blink.asm` hardware demo (LD A,0x01; LD (0x0000),A; HALT → LED on), and a board-facing `top.sv` wiring the core to the GateMate pins with the program ROM initialized at synthesis via `$readmemh` (a `-DROM_FILE` macro). `make bit` (Yosys synth_gatemate → nextpnr → gmpack) produces a 220KB bitstream; the full Z80 places at **6026 LUTs (14%), 2451 FFs (5%), max frequency 51.41 MHz (PASS at 10 MHz, 5× margin)**. The blink demo drives GPIO bit 0 high in simulation (verified). The physical board is not connected (no FTDI device), so the `openFPGALoader` load + LED observation is the one remaining step, gated on physical access.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Build Phase 6 — synthesize the Z80 object graph to a GateMate bitstream, wire a board top, and (if the board is present) load it and observe the LED driven by Z80 instructions.
+
+**Inferred user intent:** A real FPGA bitstream proving the Z80 object graph is hardware, with the LED driven by Z80 code (the Phase 6 acceptance).
+
+**Commit (code/docs):** (this step) Phase 6 synth/PnR/timing + board top.
+
+### What I did
+- Extended `obj_memio.sv`: added a `gpio_out` port; a write to address 0x0000 hits the GPIO output register (the baseline I/O map), other writes hit RAM. ROM init moved to a `ROM_FILE` macro (`$readmemh(\`ROM_FILE, rom)`) with a default, so the same module works in sim (testbench `$readmemh` overrides) and synth (Yosys `-DROM_FILE=...`).
+- Added `LD (nn),A` (0x32) to `obj_decode.sv` (6 states: fetch addr lo/hi with PC incs, read A, write A to mem[addr]) and to `zasm.py`, so a Z80 program can drive the GPIO. Added `is_ld_a_nn` helper + the S_LDNA_* states.
+- Wrote `programs/blink.asm`: `LD A,0x01; LD (0x0000),A; HALT` → LED on (the minimal "Z80 drives the LED" demo; a blinking loop needs INC/DEC r for the delay, which is 3D/3F.5).
+- Wrote `rtl/top.sv`: board-facing top wiring z80_core to the GateMate pins (clk_10m, user_led ← gpio[0], uart_tx_pin idle-high) with `CC_USR_RSTN u_cfg_reset (.USR_RSTN(cfg_rst_n))` (the sibling's named-connection form, which binds the primitive; my first cut `CC_USR_RSTN cc_rstn ()` left USR_RSTN undriven and Yosys constant-folded the whole core to a static LED).
+- Wired the full Z80 build into the Makefile (`synth` assembles the program → top_prog.hex, then Yosys with `-DROM_FILE`; `make bit` does synth→pnr→pack).
+- Verified the blink demo in sim with a quick GPIO testbench: `gpio=01, count=3, halted` → PASS (LED driven high by Z80 instructions).
+- Built the bitstream: `make bit` → `build/top.bit` (220KB). Resources: 6026 CPE_LT (14%), 2451 CPE_FF (5%); timing 51.41 MHz max (PASS at 10 MHz, 5× margin).
+- Checked for the board: `openFPGALoader --detect` → "unable to open ftdi device" (not connected). The load + LED observation is deferred to physical board access.
+
+### Why
+Phase 6's exit (design doc §13) is "synthesis/PnR/timing clean; hardware bring-up; bytecode-driven LED." The synthesis/PnR/timing half is done with a strong margin (5×); the hardware-load half needs the physical board, which isn't present. The blink demo (Z80 `LD A,1; LD (0),A; HALT` drives the LED) is the bytecode-driven-LED acceptance, proven in sim and ready to load. Doing the synth/PnR now (not deferring to a later session) proves the object graph is real hardware — 6026 LUTs is ~14% of the CCGM1A1, leaving ample room for the PCA mesh (Phase 1's 3×3 was ~12.5k cells) and the 3D/3F.5 instructions.
+
+### What worked
+- The GPIO-via-memory-write trick (write addr 0x0000 → GPIO) gave a working I/O path without an OUT instruction (not yet in the object graph), unblocking the hardware demo with a 6-state decode addition.
+- The `ROM_FILE` macro + `$readmemh` let one `obj_memio` work in both sim (testbench overrides the ROM after init) and synth (Yosys `-DROM_FILE`), avoiding a sim/synth split.
+- The sibling's `CC_USR_RSTN u_cfg_reset (.USR_RSTN(cfg_rst_n))` named-connection form was the fix for the constant-fold: once the reset was live, the FSM couldn't be optimized away and the real 6026-LUT design placed.
+- Timing closed at 51 MHz / 10 MHz target — 5× margin, matching the sibling MATE-16's ~2× but for a more complex CPU.
+
+### What didn't work
+- **`CC_USR_RSTN cc_rstn ()` with no port connection** — left USR_RSTN undriven, so Yosys constant-folded the whole core to a static LED=1 (0 CPE cells, 181-byte bitstream). Fixed with the sibling's named-connection form.
+- **`string` parameter for ROM_FILE** — Yosys rejected `parameter string ROM_FILE`; fixed with the `-DROM_FILE` macro approach.
+- **`\`ifdef ROM_FILE` after a for-loop** — Yosys syntax error; simplified to always `$readmemh(\`ROM_FILE)` with a `ifndef default.
+- **Board not connected** — `openFPGALoader --detect` finds no FTDI; the load step is deferred (not a bug, a physical-access gate).
+
+### What I learned
+- A live reset is what prevents Yosys from constant-folding a CPU: without `CC_USR_RSTN` driving the reset_sync, the FSM's initial state + constant program optimize to a static output. The named-connection form of the primitive is required (the positional `()` form leaves the output undriven).
+- The Z80 object graph at 6026 LUTs / 2451 FFs is comfortably small on the CCGM1A1 (14%/5%) — the full PCA mesh + object graph (the Phase 7 integration) will fit. The 51 MHz fmax means a 10 MHz board clock is trivially met.
+- Memory-mapped GPIO (write addr 0 → port) is a clean baseline I/O scheme that needs no new bus object; it reuses obj_memio's address decode. A real Z80 OUT instruction (port I/O space) is a 3F.5 add.
+
+### What was tricky to build
+- The constant-fold (see What didn't work). Symptom: 0 CPE cells after PnR. Cause: the reset primitive's output was undriven, so reset_sync's `rst_n` was X, the FSM never left reset, the constant program optimized the LED to a static 1. Diagnosis: the "no interior timing paths" + 0 CPE in the nextpnr report. Fix: the sibling's `CC_USR_RSTN u_cfg_reset (.USR_RSTN(cfg_rst_n))` form binds the primitive's output.
+- ROM init across sim/synth. Symptom: a `string` parameter doesn't synthesize; a hard-coded `$readmemh("build/...")` breaks the testbench's per-program override. Resolution: the `ROM_FILE` macro with a default, overridden by Yosys `-DROM_FILE` for synth and by the testbench's own `$readmemh` for sim (the testbench reads after the initial fill, so it wins).
+
+### What warrants a second pair of eyes
+- The 51 MHz fmax — confirm the report's "u_core.clk" is the z80_core's clk (it is; the only clock). The 5× margin is comfortable; verify it holds after the 3D/3F.5/prefix additions (more states may lengthen the decode path).
+- The 6026 LUTs vs the Phase 1 mesh's ~12.5k cells — the full mesh+core will be ~18k cells, ~44% of the CCGM1A1; confirm the mesh is needed for the baseline demo or if the core alone (this top) suffices for Phase 6 (it does: the LED demo runs on the core directly; the mesh is the Phase 7 reconfigurable refinement).
+- The blink demo's "LED on then halt" — a reviewer may want a *blinking* LED; that needs INC/DEC r (3F.5) for the delay loop. Document that the Phase 6 acceptance is "LED driven by Z80 instructions" (proven), not necessarily blinking.
+
+### What should be done in the future
+- **Load the bitstream to the board** when it's connected: `openFPGALoader -b olimex_gatemateevb build/top.bit` and observe the LED lit (the one deferred step).
+- 3F.5: add INC/DEC r so `blink.asm` can loop a delay for a *blinking* LED (the stronger Phase 6 demo).
+- 3D: 16-bit ADD HL,rr + INC/DEC rr; 3F.5: OUT/IN (real port I/O) and the memory-operand LDs; then the full mesh integration (Phase 7) maps the objects to PCA cells.
+- Engineering report (design-doc §4.20): architecture, software, verification, implementation, hardware results (6026 LUTs, 51 MHz), limitations (no INC/DEC/prefixes/memory-LD yet).
+
+### Code review instructions
+- `cd pca_z80 && make bit` — expect `build/top.bit` (220KB).
+- `make test` — expect mesh + object graph + 49 model + 16 assembler + 6 integration tests PASS.
+- Inspect `build/nextpnr.log`: CPE_LT 6026/40960 (14%), CPE_FF 2451/40960 (5%), Max frequency 51.41 MHz PASS at 10 MHz.
+- Read `rtl/top.sv` (board wiring + `CC_USR_RSTN` named connection) and `rtl/obj_memio.sv` (GPIO port + ROM_FILE macro).
+- For the board load (when connected): `openFPGALoader -b olimex_gatemateevb build/top.bit`.
+
+### Technical details
+- Files: `rtl/obj_memio.sv` (+gpio_out, +ROM_FILE macro), `rtl/obj_decode.sv` (+LD (nn),A: 6 states), `rtl/z80_core.sv` (+gpio_out), `rtl/top.sv` (board top, CC_USR_RSTN named), `tools/zasm.py` (+LD (nn),A), `programs/blink.asm` (LED-on demo), `Makefile` (full Z80 synth/bit).
+- Synth: 0 errors; 6026 CPE_LT (14%), 2451 CPE_FF (5%), 184 CC_ADDF; bitstream 220KB.
+- Timing: Max frequency 51.41 MHz (PASS at 10 MHz, 5× margin).
+- Sim blink: gpio=01, count=3, halted → LED driven high by Z80 instructions.
+- Board: not connected (no FTDI); load + LED observation deferred to physical access.
+- `make test`: mesh + object graph + 49 model + 16 assembler + 6 integration tests.
+- Slips: P6 START printed. P6 done slip to follow (synth/PnR/timing done; board load pending).
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
