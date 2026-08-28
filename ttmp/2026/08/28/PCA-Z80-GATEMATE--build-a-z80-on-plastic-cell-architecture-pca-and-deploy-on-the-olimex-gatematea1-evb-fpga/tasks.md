@@ -52,7 +52,8 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] `obj_decode.sv` — master FSM (3A: fetch/NOP/HALT) (§7)
 - [x] `z80_core.sv` — wires master to slaves (OR-ack + rdata mux)
 - [x] 3A fetch/NOP/HALT — directed differential vs oracle (PASS; synth clean ~995 cells)
-- [ ] 3B LD immediate/register — add obj_regfile, extend decode
+- [x] 3B LD immediate/register — add obj_regfile, extend decode (PASS; synth clean ~4443 cells)
+- [ ] 3B.5 LD r,(HL)/(HL),r + LD A,(BC)/(DE)/(nn) (memory-operand LDs)
 - [ ] 3C 8-bit ALU + flags — add obj_alu, obj_flags
 - [ ] 3D 16-bit + IX/IY
 - [ ] 3E JP/JR/CALL/RET

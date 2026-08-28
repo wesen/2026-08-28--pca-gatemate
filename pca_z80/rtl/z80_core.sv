@@ -26,7 +26,7 @@ module z80_core #(
     z80_obj::bus_req_t  bus_req;
     z80_obj::bus_resp_t bus_resp;
 
-    z80_obj::bus_resp_t pc_resp, mem_resp;
+    z80_obj::bus_resp_t pc_resp, mem_resp, reg_resp;
 
     // Master drives the bus; slaves share it.
     obj_decode u_decode (
@@ -48,9 +48,17 @@ module z80_core #(
         .rom_init_file_present(1'b1)
     );
 
+    obj_regfile u_regfile (
+        .clk(clk), .rst_n(rst_n),
+        .bus_req(bus_req), .bus_resp(reg_resp),
+        .dbg_b(), .dbg_c(), .dbg_d(), .dbg_e(),
+        .dbg_h(), .dbg_l(), .dbg_a(), .dbg_f()
+    );
+
     // Bus response aggregation: only the addressed slave acks.
-    assign bus_resp.ack   = pc_resp.ack | mem_resp.ack;
-    assign bus_resp.rdata = pc_resp.ack ? pc_resp.rdata : mem_resp.rdata;
+    assign bus_resp.ack   = pc_resp.ack | mem_resp.ack | reg_resp.ack;
+    assign bus_resp.rdata = pc_resp.ack  ? pc_resp.rdata  :
+                             mem_resp.ack ? mem_resp.rdata : reg_resp.rdata;
 endmodule
 
 `default_nettype wire

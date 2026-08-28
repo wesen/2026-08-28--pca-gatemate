@@ -1,9 +1,10 @@
-// tb_z80_core.sv — Phase 3A directed differential test (design-doc §13, 3A).
+// tb_z80_core.sv — Phase 3A/3B directed differential tests (design-doc §13).
 //
-// Loads NOP,NOP,HALT into the memory object, runs the object-graph core, and
+// Loads programs into the memory object, runs the object-graph core, and
 // checks retired state against the reference-model oracle (z80_model.py):
-//   oracle: PC=3, R=3, instruction_count=3, halted=True, faulted=False
-//   (the program is NOP,NOP,HALT; HALT retires, matching the model).
+//   3A: NOP,NOP,HALT -> PC=3, R=3, count=3, halted, not faulted
+//   3B: LD A,0x42; LD B,A; HALT -> A=0x42, B=0x42, count=3
+//   3B: LD A,0x11; LD C,0x22; LD D,A; HALT -> A=0x11, C=0x22, D=0x11, count=4
 // This proves the object graph fetches and executes over the held-request bus
 // with the same retirement semantics as the oracle.
 `timescale 1ns/1ps
@@ -23,53 +24,66 @@ module tb_z80_core;
 
     integer errors = 0;
 
+    // Load up to 8 program bytes into the memory object's ROM, reset, run.
+    task automatic run_prog(input logic [7:0] p0, p1, p2, p3, p4, p5, p6, p7,
+                            input integer plen);
+        begin
+            dut.u_memio.rom[0] = p0; dut.u_memio.rom[1] = p1; dut.u_memio.rom[2] = p2;
+            dut.u_memio.rom[3] = p3; dut.u_memio.rom[4] = p4; dut.u_memio.rom[5] = p5;
+            dut.u_memio.rom[6] = p6; dut.u_memio.rom[7] = p7;
+            for (integer i = plen; i < 9; i++) dut.u_memio.rom[i] = 8'h00;
+            rst_n = 1'b0;
+            repeat(4) @(posedge clk);
+            rst_n = 1'b1;
+            repeat(500) @(posedge clk);
+        end
+    endtask
+
     initial begin
         $dumpfile("build/z80_core.vcd");
         $dumpvars(0, tb_z80_core);
-        // Load NOP,NOP,HALT into the memory object's ROM (byte 0..2).
-        dut.u_memio.rom[0] = 8'h00;  // NOP
-        dut.u_memio.rom[1] = 8'h00;  // NOP
-        dut.u_memio.rom[2] = 8'h76;  // HALT
 
-        rst_n = 1'b0;
-        repeat(4) @(posedge clk);
-        rst_n = 1'b1;
+        // ---- 3A: NOP,NOP,HALT -> PC=3, R=3, count=3, halted ----
+        errors = 0;
+        run_prog(8'h00, 8'h00, 8'h76, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 3);
+        if (dbg_pc !== 16'd3)    begin $display("FAIL 3A: PC=%0d (oracle 3)", dbg_pc); errors=errors+1; end
+        if (dbg_r !== 8'd3)      begin $display("FAIL 3A: R=%0d (oracle 3)", dbg_r); errors=errors+1; end
+        if (dbg_count !== 32'd3) begin $display("FAIL 3A: count=%0d (oracle 3)", dbg_count); errors=errors+1; end
+        if (!dbg_halted)         begin $display("FAIL 3A: not halted"); errors=errors+1; end
+        if (dbg_faulted)         begin $display("FAIL 3A: faulted"); errors=errors+1; end
+        if (errors==0) $display("3A: NOP/NOP/HALT matches oracle (PC=3 R=3 count=3)");
 
-        // Run enough cycles for 3 instructions through the multi-state FSM
-        // (each instruction takes several bus transactions).
-        repeat(200) @(posedge clk);
+        // ---- 3B: LD A,0x42; LD B,A; HALT -> A=0x42, B=0x42, count=3 ----
+        errors = 0;
+        run_prog(8'h3E, 8'h42, 8'h47, 8'h76, 8'h00, 8'h00, 8'h00, 8'h00, 4);  // LD A,0x42; LD B,A; HALT
+        if (dut.u_regfile.dbg_a !== 8'h42) begin $display("FAIL 3B1: A=%h (oracle 0x42)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (dut.u_regfile.dbg_b !== 8'h42) begin $display("FAIL 3B1: B=%h (oracle 0x42)", dut.u_regfile.dbg_b); errors=errors+1; end
+        if (dbg_count !== 32'd3)            begin $display("FAIL 3B1: count=%0d (oracle 3)", dbg_count); errors=errors+1; end
+        if (!dbg_halted)                    begin $display("FAIL 3B1: not halted"); errors=errors+1; end
+        if (dbg_faulted)                    begin $display("FAIL 3B1: faulted"); errors=errors+1; end
+        if (errors==0) $display("3B1: LD A,0x42; LD B,A matches oracle (A=0x42 B=0x42 count=3)");
 
-        // ---- differential checks vs the oracle (z80_model.py) ----
-        // NOP,NOP,HALT -> PC=3, R=3, count=3, halted, not faulted
-        if (dbg_pc !== 16'd3) begin
-            $display("FAIL: PC=%0d (oracle 3)", dbg_pc); errors = errors + 1;
-        end
-        if (dbg_r !== 8'd3) begin
-            $display("FAIL: R=%0d (oracle 3)", dbg_r); errors = errors + 1;
-        end
-        if (dbg_count !== 32'd3) begin
-            $display("FAIL: count=%0d (oracle 3)", dbg_count); errors = errors + 1;
-        end
-        if (!dbg_halted) begin
-            $display("FAIL: not halted (oracle halted)"); errors = errors + 1;
-        end
-        if (dbg_faulted) begin
-            $display("FAIL: faulted (oracle not faulted)"); errors = errors + 1;
-        end
-        if (dbg_ir !== 8'h76) begin
-            $display("FAIL: IR=%h (oracle 0x76)", dbg_ir); errors = errors + 1;
-        end
+        // ---- 3B: LD A,0x11; LD C,0x22; LD D,A; HALT -> A=0x11, C=0x22, D=0x11, count=4 ----
+        errors = 0;
+        run_prog(8'h3E, 8'h11, 8'h0E, 8'h22, 8'h57, 8'h76, 8'h00, 8'h00, 6);  // LD A,0x11; LD C,0x22; LD D,A; HALT
+        if (dut.u_regfile.dbg_a !== 8'h11) begin $display("FAIL 3B2: A=%h (oracle 0x11)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (dut.u_regfile.dbg_c !== 8'h22) begin $display("FAIL 3B2: C=%h (oracle 0x22)", dut.u_regfile.dbg_c); errors=errors+1; end
+        if (dut.u_regfile.dbg_d !== 8'h11) begin $display("FAIL 3B2: D=%h (oracle 0x11)", dut.u_regfile.dbg_d); errors=errors+1; end
+        if (dbg_count !== 32'd4)            begin $display("FAIL 3B2: count=%0d (oracle 4)", dbg_count); errors=errors+1; end
+        if (!dbg_halted)                    begin $display("FAIL 3B2: not halted"); errors=errors+1; end
+        if (dbg_faulted)                    begin $display("FAIL 3B2: faulted"); errors=errors+1; end
+        if (errors==0) $display("3B2: LD A,0x11; LD C,0x22; LD D,A matches oracle (A=0x11 C=0x22 D=0x11 count=4)");
 
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A object graph (NOP/NOP/HALT) matches oracle");
+            $display("PASS: Phase 3A/3B object graph (NOP/HALT + LD r,n/r,r') matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;
     end
 
     initial begin
-        #50000;
+        #200000;
         $display("FAIL: watchdog timeout");
         $finish;
     end

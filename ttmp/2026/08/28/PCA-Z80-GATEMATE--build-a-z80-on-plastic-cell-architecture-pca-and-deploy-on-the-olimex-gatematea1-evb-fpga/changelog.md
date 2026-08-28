@@ -67,3 +67,12 @@ Step 7 / Phase 3A: built the first Z80 object-RTL milestone. z80_obj.sv (object-
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_decode.sv — Z80 decode master FSM (3A: fetch/NOP/HALT)
 
+
+## 2026-08-28
+
+Step 8 / Phase 3B: added obj_regfile + extended decode to LD r,n and LD r,r' (register operands). obj_regfile.sv (9-entry 8-bit register array, held-request slave), obj_decode.sv rewritten as a general fetch-decode-execute sequencer with local pc_cur for multi-byte instructions (S_FETCH_PC->FETCH_OP->INC_OP->DECODE->FETCH_IMM/REG_READ_SRC->REG_WRITE_DST). tb_z80_core.sv 3 differential tests vs oracle: NOP/HALT, LD A,0x42;LD B,A, LD A,0x11;LD C,0x22;LD D,A all PASS. Synth clean (~4443 cells). make test = mesh + 3A/3B + 49 model tests. Portability rules added: V2K function style (no return), &/| not &&/|| in functions.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_regfile.sv — Z80 register-file object (8-bit regs, held-request bus slave)
+

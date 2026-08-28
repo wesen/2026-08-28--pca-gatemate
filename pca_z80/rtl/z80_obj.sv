@@ -37,6 +37,13 @@ package z80_obj;
   localparam logic [15:0] PC_READ = 16'h0000;  // read  -> rdata = PC
   localparam logic [15:0] PC_INC  = 16'h0001;  // write -> PC += wdata, R++
   localparam logic [15:0] PC_SET  = 16'h0002;  // write -> PC = wdata
+
+  // Register-file object sub-ops (addr field when obj==OBJ_REG).
+  // The addr field is the Z80 r-table index: 0=B,1=C,2=D,3=E,4=H,5=L,
+  // 6=(HL) [handled by the decode via MEM, not the regfile], 7=A.
+  // Index 8 = F (flags); used from 3C onward.
+  localparam logic [15:0] REG_READ  = 16'h0000;  // read  -> rdata[7:0] = reg[addr[3:0]]
+  localparam logic [15:0] REG_WRITE = 16'h0001;  // write -> reg[addr[3:0]] = wdata[7:0]
 endpackage : z80_obj
 
 `default_nettype wire

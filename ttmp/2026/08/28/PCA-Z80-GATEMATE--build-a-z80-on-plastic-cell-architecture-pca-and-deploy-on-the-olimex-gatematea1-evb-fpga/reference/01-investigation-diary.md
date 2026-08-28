@@ -526,6 +526,77 @@ This step built the first Z80 object-RTL milestone: the fetch/decode/execute obj
 - Invariant: object graph is the *first* RTL beyond the Phase 1 substrate (model-first held; the oracle pre-exists from Phase 2).
 - Slips printed: P3 START (plan). P3 progress slip to follow (3A done; 3B–3F pending).
 
+## Step 8: Build Phase 3 — milestone 3B (obj_regfile + LD r,n / LD r,r')
+
+This step added the register-file object (`obj_regfile`) and extended the decode master FSM to execute `LD r,n` and `LD r,r'` (register operands only; (HL) memory operands are a 3B.5 follow-on), with directed differential tests against the `z80_model.py` oracle. The object graph now retires three instruction classes (NOP/HALT/LD) and matches the oracle exactly on two load programs: `LD A,0x42; LD B,A; HALT` → A=0x42, B=0x42, count=3; `LD A,0x11; LD C,0x22; LD D,A; HALT` → A=0x11, C=0x22, D=0x11, count=4. The core synthesizes clean with Yosys `synth_gatemate -luttree -nomx8` (~4443 cells). The work refined the decode FSM to a general fetch-decode-execute sequencer with a local `pc_cur` cursor for multi-byte instructions, and confirmed the locked portability rules hold for a new object.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Continue Phase 3 with milestone 3B — the register-file object and LD immediate/register instructions, differential-tested against the oracle, committing and slip-printing.
+
+**Inferred user intent:** Progress the Z80 object graph toward a usable instruction set, keeping the model-first differential discipline.
+
+**Commit (code/docs):** (this step) Phase 3B object graph.
+
+### What I did
+- Extended `rtl/z80_obj.sv` with register-file sub-ops `REG_READ`/`REG_WRITE` (addr field = r-table index 0=B,1=C,2=D,3=E,4=H,5=L,6=(HL) reserved, 7=A, 8=F).
+- Wrote `rtl/obj_regfile.sv`: a 9-entry 8-bit register array as a held-request bus slave, same captured-transaction anti-double handshake as `obj_pc`. Exposes `dbg_b/c/d/e/h/l/a/f` for the testbench.
+- Rewrote `rtl/obj_decode.sv` into a general fetch-decode-execute sequencer: `S_FETCH_PC → S_FETCH_OP → S_INC_OP → S_DECODE → (S_FETCH_IMM → S_INC_IMM | S_REG_READ_SRC) → S_REG_WRITE_DST → retire`. A local `pc_cur` shadows the PC object as the FSM fetches multi-byte instructions. `S_DECODE` dispatches NOP (retire), HALT (halt+retire), LD r,n (r≠6 → fetch immediate), LD r,r' (neither 6 → read src reg), else fault. `write_val_sel()` picks imm_val vs src_val by re-checking the opcode pattern.
+- Wired `obj_regfile` into `rtl/z80_core.sv` as a third slave (OR-ack + rdata mux extended to three slaves).
+- Rewrote `sim/tb_z80_core.sv` with a `run_prog` task (fixed 8-byte + length signature — iverilog runtime-asserts on unpacked-array task params) and three differential tests (3A NOP/HALT, 3B1 LD A,0x42;LD B,A, 3B2 LD A,0x11;LD C,0x22;LD D,A) checking register values + count + halted + not faulted against the oracle.
+- Fixed four portability issues (see What didn't work), all consistent with the rules locked in Phases 1/3A.
+- Confirmed Yosys synthesis (0 errors, ~4443 cells) and the full regression (mesh + 3A/3B + 49 model tests).
+
+### Why
+3B's exit (design doc §13) is "LD immediate/register" — the first data-moving instruction, which proves the object graph can read/write a slave object (the regfile), not just fetch. This is the milestone that validates the bus as a general object-to-object channel and the decode FSM as a scalable sequencer (3C–3F add ALU/flags/control objects by extending the same `S_DECODE` dispatch and execute states).
+
+### What worked
+- The general fetch-decode-execute sequencer with `pc_cur` made multi-byte instructions natural: LD r,n fetches the opcode (pc_cur++), then the immediate (pc_cur++), with the held-request pattern unchanged per transaction.
+- Differential testing against the oracle caught nothing this time (the model was already correct from Phase 2; the RTL matched on the first sim run after the portability fixes) — the model-first payoff.
+- The `write_val_sel()` function re-checking the opcode to pick imm vs src avoided a separate flag register in the decode.
+
+### What didn't work
+- **iverilog runtime assert on unpacked-array task params** (`input logic [7:0] prog[]` with `prog.size`/`prog[i]`) — `vthread_get_rd_context_item` assertion. Fixed with a fixed 8-byte + length task signature.
+- **Yosys wildcard-import scoping** in the two new/rewritten files (`obj_regfile`, `obj_decode`) — typedefs/localparams need explicit `z80_obj::`; the bulk sed double-prefixed obj_decode (it already had some `z80_obj::`), fixed with a `z80_obj::z80_obj:: → z80_obj::` sed.
+- **Yosys rejects `return` in functions** (SystemVerilog-2009) — fixed by Verilog-2005 style (assign to function name).
+- **Yosys rejects `&&` in a function-return context** — fixed with `&` (1-bit operands, equivalent). (Both function-portability rules are now part of the locked subset: use V2K function style, avoid `&&`/`||` in functions.)
+- **Makefile `Z80_RTL` missing `obj_regfile.sv`** — `make test` failed with "Unknown module type: obj_regfile"; fixed by adding it to the list.
+
+### What I learned
+- The decode FSM scales by addition: 3C–3F add execute states after `S_DECODE` (e.g. `S_ALU_OP`, `S_FLAGS_WRITE`, `S_PC_SET` for control) reusing the exact held-request transaction pattern. No redesign needed.
+- iverilog and Yosys both reject `return` in functions and `&&`/`||` in function returns — the portable function subset is: `function automatic <type> f(input ...); f = <expr>; endfunction` with only `&`/`|`/`^`/comparisons in the expression.
+- The regfile as a bus slave (not a shared register file read combinationally) keeps the object discipline: every register access is a held-request transaction, matching the PCA object/message model (DR-7).
+
+### What was tricky to build
+- Distinguishing LD r,n (write the fetched immediate) from LD r,r' (write the read source) in `S_REG_WRITE_DST` without a separate mode flag. Symptom: both paths converge on the same write state. Resolution: `write_val_sel()` re-derives the instruction class from `ir` (`(ir & 0xC7)==0x06` is LD r,n), which still holds the opcode at that state. Simple and stateless.
+- The iverilog unpacked-array task assert. Symptom: `vthread_get_rd_context_item` crash with no line number. Cause: iverilog's dynamic-array task-argument support is incomplete. Resolution: fixed-size signature (8 bytes + length), the classic iverilog-safe pattern.
+
+### What warrants a second pair of eyes
+- The `write_val_sel()` opcode re-check — confirm `ir` is never overwritten between `S_DECODE` and `S_REG_WRITE_DST` (it isn't; only `S_FETCH_OP` writes `ir`).
+- The regfile index 6 (HL) being reserved — 3B.5 (LD r,(HL)/(HL),r) must compose H:L in the decode and route through the memory object, not the regfile; confirm the decode doesn't accidentally REG_WRITE index 6.
+- The `pc_cur` local mirror — confirm it stays in sync with the PC object across LD r,n (two INCs). The differential tests (count, final PC) cover this.
+
+### What should be done in the future
+- 3B.5: add (HL) memory operands to LD (compose H:L → MEM_READ/WRITE), and `LD A,(BC)/(DE)/(nn)` and `LD r,(IX+d)` — the memory-operand LDs.
+- 3C: add `obj_alu` + `obj_flags` and the 8-bit ALU (ADD/SUB/AND/OR/XOR/CP/INC/DEC) with the flag model from `z80_model.py`; differential-test flag bits.
+- Then 3D–3F as planned.
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: Phase 3A/3B object graph (NOP/HALT + LD r,n/r,r') matches oracle`.
+- `make test` — expect mesh PASS, 3A/3B PASS, 49 model tests passed.
+- Synthesize: `yosys -p 'read_verilog -defer -sv rtl/z80_obj.sv rtl/obj_pc.sv rtl/obj_memio.sv rtl/obj_regfile.sv rtl/obj_decode.sv rtl/z80_core.sv <top>; synth_gatemate -top <top> -luttree -nomx8'` — expect 0 errors.
+- Read `obj_decode.sv` `S_DECODE` + `write_val_sel()` for the LD dispatch and imm/src selection.
+
+### Technical details
+- Files: `rtl/z80_obj.sv` (+REG_READ/REG_WRITE), `rtl/obj_regfile.sv` (new), `rtl/obj_decode.sv` (rewritten: general sequencer + LD), `rtl/z80_core.sv` (+regfile slave), `sim/tb_z80_core.sv` (3 differential tests).
+- Oracle expected: 3B1 LD A,0x42;LD B,A;HALT → A=0x42,B=0x42,count=3; 3B2 LD A,0x11;LD C,0x22;LD D,A;HALT → A=0x11,C=0x22,D=0x11,count=4. RTL matches.
+- Synth (top_zc): 0 errors, ~4443 cells, 2458 wires.
+- `make test`: mesh sim + 3A/3B object-graph sim + 49 model tests.
+- Portability rules added: V2K function style (assign to name, no `return`); `&`/`|` not `&&`/`||` in functions.
+- Slips printed: (P3 START was Step 7). 3B milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
