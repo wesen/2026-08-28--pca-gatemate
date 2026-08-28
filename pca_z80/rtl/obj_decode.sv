@@ -30,7 +30,7 @@ module obj_decode (
     output logic        dbg_halted,
     output logic        dbg_faulted
 );
-    typedef enum logic [4:0] {
+    typedef enum logic [5:0] {
         S_FETCH_PC, S_FETCH_OP, S_INC_OP, S_DECODE,
         S_FETCH_IMM, S_INC_IMM,
         S_REG_READ_SRC, S_REG_WRITE_DST,
@@ -38,6 +38,11 @@ module obj_decode (
         S_ALU_OP, S_ALU_WRITE_A, S_ALU_WRITE_FLAGS,
         S_JP_LO, S_JP_INC1, S_JP_HI, S_JP_INC2, S_PC_SET,
         S_JR_READ_F, S_JR_FETCH, S_JR_INC, S_JR_DO,
+        S_CALL_LO, S_CALL_INC1, S_CALL_HI, S_CALL_INC2, S_CALL_DECSP2,
+        S_CALL_SPHI, S_CALL_PUSHLO, S_CALL_PUSHHI, S_CALL_SET,
+        S_RET_POPLO, S_RET_INC1, S_RET_POPHI, S_RET_POPLO2, S_RET_SET,
+        S_PUSH_READ, S_PUSH_DECSP2, S_PUSH_SPHI, S_PUSH_SPLO, S_PUSH_SPLO2,
+        S_POP_SPLO, S_POP_INC1, S_POP_SPHI, S_POP_SPLO2, S_POP_WRITE,
         S_HALT, S_FAULT
     } state_e;
     state_e state;
@@ -62,6 +67,13 @@ module obj_decode (
     logic [2:0]  jr_cc;      // condition code for JR cc
     logic        jr_taken;   // resolved condition
     logic [7:0]  flag_q;     // latched F for JR cc
+    // stack execute path (3F)
+    logic [15:0] call_addr;   // CALL target
+    logic [15:0] sp_val;      // latched SP
+    logic [15:0] ret_addr;    // RET target
+    logic [15:0] push_val;    // PUSH value
+    logic [15:0] pop_val;     // POP value
+    logic [1:0]  pp;         // push/pop pair index
 
     assign dbg_ir     = ir;
     assign dbg_pc_val = pc_val;
@@ -114,6 +126,24 @@ module obj_decode (
     function automatic logic is_jr_cc(input logic [7:0] o);
         is_jr_cc = (o == 8'h20) | (o == 8'h28) | (o == 8'h30) | (o == 8'h38);
     endfunction
+    function automatic logic is_call(input logic [7:0] o);
+        is_call = (o == 8'hCD);
+    endfunction
+    function automatic logic is_ret(input logic [7:0] o);
+        is_ret = (o == 8'hC9);
+    endfunction
+    function automatic logic is_push(input logic [7:0] o);
+        // C5=BC D5=DE E5=HL F5=AF
+        is_push = (o == 8'hC5) | (o == 8'hD5) | (o == 8'hE5) | (o == 8'hF5);
+    endfunction
+    function automatic logic is_pop(input logic [7:0] o);
+        // C1=BC D1=DE E1=HL F1=AF
+        is_pop = (o == 8'hC1) | (o == 8'hD1) | (o == 8'hE1) | (o == 8'hF1);
+    endfunction
+    // push/pop reg-pair index: 0=BC,1=DE,2=HL,3=AF (matches RP_PUSH table)
+    function automatic logic [1:0] pp_idx(input logic [7:0] o);
+        pp_idx = (o >> 4) & 8'h03;
+    endfunction
     // JR cc code: 0x20=NZ,0x28=Z,0x30=NC,0x38=C -> cc index 0,1,2,3
     function automatic logic [2:0] jr_cc_of(input logic [7:0] o);
         case (o)
@@ -164,6 +194,12 @@ module obj_decode (
             jr_cc     <= 3'd0;
             jr_taken  <= 1'b0;
             flag_q    <= 8'h00;
+            call_addr <= 16'h0000;
+            sp_val    <= 16'h0000;
+            ret_addr  <= 16'h0000;
+            push_val  <= 16'h0000;
+            pop_val   <= 16'h0000;
+            pp        <= 2'd0;
             bus_req  <= '0;
         end else begin
             case (state)
@@ -241,6 +277,18 @@ module obj_decode (
                         // JR cc,e
                         jr_cc <= jr_cc_of(ir);
                         state <= S_JR_READ_F;
+                    end else if (is_call(ir)) begin
+                        // CALL nn
+                        state <= S_CALL_LO;
+                    end else if (is_ret(ir)) begin
+                        // RET
+                        state <= S_RET_POPLO;
+                    end else if (is_push(ir)) begin
+                        // PUSH rr (BC/DE/HL/AF)
+                        state <= S_PUSH_READ;
+                    end else if (is_pop(ir)) begin
+                        // POP rr
+                        state <= S_POP_SPLO;
                     end else begin
                         faulted <= 1'b1;
                         state   <= S_FAULT;
@@ -477,6 +525,249 @@ module obj_decode (
                     end else begin
                         count <= count + 32'd1;
                         state <= S_FETCH_PC;   // not taken: PC already past displacement
+                    end
+                end
+                // ===================== 3F: stack (CALL/RET/PUSH/POP) =====================
+                // ---- PUSH rr: read the pair, dec SP by 2, write high at SP, write low at SP-1 ----
+                S_PUSH_READ: begin
+                    if (!bus_req.req) begin
+                        pp <= pp_idx(ir);
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, 4'd9 + pp_idx(ir)}; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        push_val   <= bus_resp.rdata;
+                        bus_req.req <= 1'b0;
+                        state       <= S_PUSH_DECSP2;
+                    end
+                end
+                S_PUSH_DECSP2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_DEC; bus_req.wdata <= 16'h0002;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_PUSH_SPHI;
+                    end
+                end
+                S_PUSH_SPHI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        sp_val      <= bus_resp.rdata;
+                        bus_req.req <= 1'b0;
+                        state       <= S_PUSH_SPLO;
+                    end
+                end
+                S_PUSH_SPLO: begin
+                    // SP already decremented by 2; write HIGH byte at SP+1, then LOW at SP.
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val + 16'h0001; bus_req.wdata <= {8'h00, push_val[15:8]};
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_PUSH_SPLO2;  // write the low byte at SP next
+                    end
+                end
+                S_PUSH_SPLO2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val; bus_req.wdata <= {8'h00, push_val[7:0]};
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- POP rr: read low at SP, read high at SP+1, inc SP by 2, write pair ----
+                S_POP_SPLO: begin
+                    pp <= pp_idx(ir);
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        sp_val      <= bus_resp.rdata;
+                        bus_req.req <= 1'b0;
+                        state       <= S_POP_INC1;
+                    end
+                end
+                S_POP_INC1: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_INC; bus_req.wdata <= 16'h0002;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_POP_SPHI;
+                    end
+                end
+                S_POP_SPHI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val + 16'h0001; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        pop_val[15:8] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_POP_SPLO2;
+                    end
+                end
+                S_POP_SPLO2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        pop_val[7:0] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_POP_WRITE;
+                    end
+                end
+                S_POP_WRITE: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_REG; bus_req.addr <= {12'h000, 4'd9 + pp}; bus_req.wdata <= pop_val;
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- CALL nn: fetch target, inc PC past the 3 bytes, push return addr (PC after CALL), set PC ----
+                S_CALL_LO: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        call_addr[7:0] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_INC1;
+                    end
+                end
+                S_CALL_INC1: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_HI;
+                    end
+                end
+                S_CALL_HI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= pc_cur; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        call_addr[15:8] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_INC2;
+                    end
+                end
+                S_CALL_INC2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_INC; bus_req.wdata <= 16'h0001;
+                    end else if (bus_resp.ack) begin
+                        pc_cur      <= pc_cur + 16'h0001;  // pc_cur now = return addr (after CALL)
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_DECSP2;
+                    end
+                end
+                // ---- CALL: dec SP by 2, push high then low of return addr, set PC ----
+                S_CALL_DECSP2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_DEC; bus_req.wdata <= 16'h0002;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_SPHI;
+                    end
+                end
+                S_CALL_SPHI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        sp_val      <= bus_resp.rdata;
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_PUSHLO;
+                    end
+                end
+                S_CALL_PUSHLO: begin
+                    // SP already dec by 2; push HIGH byte of return addr at SP+1, then LOW at SP.
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val + 16'h0001; bus_req.wdata <= {8'h00, pc_cur[15:8]};
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_PUSHHI;
+                    end
+                end
+                S_CALL_PUSHHI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val; bus_req.wdata <= {8'h00, pc_cur[7:0]};
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_CALL_SET;
+                    end
+                end
+                S_CALL_SET: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_SET; bus_req.wdata <= call_addr;
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
+                    end
+                end
+                // ---- RET: read low at SP, read high at SP+1, inc SP by 2, set PC ----
+                S_RET_POPLO: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_READ; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        sp_val      <= bus_resp.rdata;
+                        bus_req.req <= 1'b0;
+                        state       <= S_RET_INC1;
+                    end
+                end
+                S_RET_INC1: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::SP_INC; bus_req.wdata <= 16'h0002;
+                    end else if (bus_resp.ack) begin
+                        bus_req.req <= 1'b0;
+                        state       <= S_RET_POPHI;
+                    end
+                end
+                S_RET_POPHI: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val + 16'h0001; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        ret_addr[15:8] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_RET_POPLO2;
+                    end
+                end
+                S_RET_POPLO2: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b0;
+                        bus_req.obj <= z80_obj::OBJ_MEM; bus_req.addr <= sp_val; bus_req.wdata <= 16'h0000;
+                    end else if (bus_resp.ack) begin
+                        ret_addr[7:0] <= bus_resp.rdata[7:0];
+                        bus_req.req <= 1'b0;
+                        state       <= S_RET_SET;
+                    end
+                end
+                S_RET_SET: begin
+                    if (!bus_req.req) begin
+                        bus_req.req <= 1'b1; bus_req.we <= 1'b1;
+                        bus_req.obj <= z80_obj::OBJ_PC; bus_req.addr <= z80_obj::PC_SET; bus_req.wdata <= ret_addr;
+                    end else if (bus_resp.ack) begin
+                        count       <= count + 32'd1;
+                        bus_req.req <= 1'b0;
+                        state       <= S_FETCH_PC;
                     end
                 end
                 S_HALT, S_FAULT: begin

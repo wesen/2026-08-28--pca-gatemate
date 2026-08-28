@@ -13,12 +13,12 @@ module tb_z80_core;
     logic clk = 1'b0, rst_n = 1'b0;
     always #50 clk = ~clk;  // 10 MHz
 
-    logic [7:0]  dbg_ir; logic [15:0] dbg_pc; logic [7:0] dbg_r;
+    logic [7:0]  dbg_ir; logic [15:0] dbg_pc; logic [7:0] dbg_r; logic [15:0] dbg_sp;
     logic [31:0] dbg_count; logic dbg_halted, dbg_faulted;
 
     z80_core dut (
         .clk(clk), .rst_n(rst_n),
-        .dbg_ir(dbg_ir), .dbg_pc(dbg_pc), .dbg_r(dbg_r),
+        .dbg_ir(dbg_ir), .dbg_pc(dbg_pc), .dbg_r(dbg_r), .dbg_sp(dbg_sp),
         .dbg_count(dbg_count), .dbg_halted(dbg_halted), .dbg_faulted(dbg_faulted)
     );
 
@@ -137,9 +137,34 @@ module tb_z80_core;
         if (dut.u_regfile.dbg_a !== 8'h01) begin $display("FAIL 3E3: A=%h (oracle 0x01)", dut.u_regfile.dbg_a); errors=errors+1; end
         if (errors==0) $display("3E3: JR NZ not-taken matches oracle (A=0x01)");
 
+        // ---- 3F: CALL/RET (SP resets to 0xFFFF) ----
+        // CALL 0x07; HALT; LD A,0x42; RET; LD A,0x99; HALT -> A=0x42, count=4, SP back to FFFF
+        errors = 0;
+        run_prog(8'hCD, 8'h07, 8'h00, 8'h76, 8'h00, 8'h00, 8'h00, 8'h3E, 13);  // CALL 7; HALT; xx; xx; xx; LD A,
+        // the program is 13 bytes: CD 07 00 76 00 00 00 3E 42 C9 3E 99 76
+        dut.u_memio.rom[8] = 8'h42;  // continue the program past the 8-byte run_prog head
+        dut.u_memio.rom[9] = 8'hC9;  // RET
+        dut.u_memio.rom[10] = 8'h3E; // LD A,0x99
+        dut.u_memio.rom[11] = 8'h99;
+        dut.u_memio.rom[12] = 8'h76; // HALT
+        rst_n = 1'b0; repeat(4) @(posedge clk); rst_n = 1'b1;
+        repeat(600) @(posedge clk);
+        if (dut.u_regfile.dbg_a !== 8'h42) begin $display("FAIL 3F1: A=%h (oracle 0x42)", dut.u_regfile.dbg_a); errors=errors+1; end
+        if (dut.dbg_sp !== 16'hFFFF) begin $display("FAIL 3F1: SP=%h (oracle FFFF)", dut.dbg_sp); errors=errors+1; end
+        if (errors==0) $display("3F1: CALL/RET matches oracle (A=0x42 SP=FFFF)");
+
+        // ---- 3F: PUSH BC / POP DE ----
+        // LD B,0x12; LD C,0x34; PUSH BC; POP DE; HALT -> D=0x12 E=0x34 SP=FFFF
+        errors = 0;
+        run_prog(8'h06, 8'h12, 8'h0E, 8'h34, 8'hC5, 8'hD1, 8'h76, 8'h00, 7);  // LD B,0x12; LD C,0x34; PUSH BC; POP DE; HALT
+        if (dut.u_regfile.dbg_d !== 8'h12) begin $display("FAIL 3F2: D=%h (oracle 0x12)", dut.u_regfile.dbg_d); errors=errors+1; end
+        if (dut.u_regfile.dbg_e !== 8'h34) begin $display("FAIL 3F2: E=%h (oracle 0x34)", dut.u_regfile.dbg_e); errors=errors+1; end
+        if (dut.dbg_sp !== 16'hFFFF) begin $display("FAIL 3F2: SP=%h (oracle FFFF)", dut.dbg_sp); errors=errors+1; end
+        if (errors==0) $display("3F2: PUSH BC/POP DE matches oracle (D=0x12 E=0x34 SP=FFFF)");
+
         $display("----");
         if (errors == 0)
-            $display("PASS: Phase 3A/3B/3C/3E object graph (NOP/HALT + LD + ALU + JP/JR) matches oracle");
+            $display("PASS: Phase 3A/3B/3C/3E/3F object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP) matches oracle");
         else
             $display("FAIL: %0d error(s)", errors);
         $finish;

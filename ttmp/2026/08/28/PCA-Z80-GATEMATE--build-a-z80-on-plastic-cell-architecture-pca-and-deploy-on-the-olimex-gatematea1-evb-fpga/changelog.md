@@ -94,3 +94,12 @@ Step 10 / Phase 3E: added control flow JP nn / JR e / JR cc,e (NZ/Z/NC/C). decod
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_decode.sv — Z80 decode master (3A/3B/3C/3E: NOP/HALT/LD/ALU/JP/JR)
 
+
+## 2026-08-28
+
+Step 11 / Phase 3F: added the stack (SP in obj_pc) + CALL/RET/PUSH/POP. obj_pc rewritten (PC+SP+R, 7 sub-ops), obj_regfile rewritten (+16-bit pair access idx 9-12 = BC/DE/HL/AF), obj_decode +~24 stack states (PUSH read-pair/dec-SP2/write-hi@SP+1/write-lo@SP; POP read-SP/inc-SP2/read-hi/read-lo/write-pair; CALL fetch-target/dec-SP2/push-retaddr/set-PC; RET read-SP/inc-SP2/pop-retaddr/set-PC). 2 differential tests vs oracle PASS (CALL/RET A=0x42 SP=FFFF; PUSH BC/POP DE D=0x12 E=0x34 SP=FFFF). Fixed little-endian stack byte order (high@SP+1, low@SP), enum overflow (->6 bits), obj_pc output assign. Synth clean (~5450 cells). Object graph now executes NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_pc.sv — Z80 PC + SP + R object (held-request bus slave, 7 sub-ops)
+

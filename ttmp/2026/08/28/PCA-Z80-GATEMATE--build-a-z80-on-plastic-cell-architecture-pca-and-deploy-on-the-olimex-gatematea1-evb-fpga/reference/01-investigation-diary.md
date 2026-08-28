@@ -735,6 +735,76 @@ This step added the non-stack control-flow instructions (JP nn, JR e, JR cc,e wi
 - Skipped 3D (16-bit) to do 3E (control) first; 3D/3F remain.
 - Slips: 3C done (Step 9). 3E milestone slip to follow.
 
+## Step 11: Build Phase 3 — milestone 3F (stack: CALL/RET/PUSH/POP)
+
+This step added the stack object (SP folded into obj_pc) and the stack instructions CALL/RET/PUSH/POP, with 16-bit register-pair access added to obj_regfile (indices 9=BC,10=DE,11=HL,12=AF). Two directed differential tests pass against the oracle: CALL/RET (A=0x42, SP restored to 0xFFFF) and PUSH BC/POP DE (D=0x12, E=0x34, SP restored). The object graph now retires NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP — the core of the baseline Z80 ISA — and the core synthesizes clean (~5450 cells). This completes the non-16-bit, non-prefix portion of Phase 3; 3D (16-bit + IX/IY) and the DD/FD/CB/ED prefix machinery remain, then Phase 4 (assembler) can target this instruction set. The one subtlety was the Z80's little-endian stack layout: high byte at the higher address (SP+1 after the pre-decrement), low at SP.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Continue Phase 3 with milestone 3F — the stack (SP) and CALL/RET/PUSH/POP, differential-tested against the oracle, completing the core control-flow + stack instruction set.
+
+**Inferred user intent:** A Z80 with subroutines and stack data movement, enough to run real programs.
+
+**Commit (code/docs):** (this step) Phase 3F stack.
+
+### What I did
+- Extended `z80_obj.sv` with SP sub-ops (SP_READ/SP_DEC/SP_INC/SP_SET) on the PC object, and 16-bit register-pair indices (9=BC,10=DE,11=HL,12=AF) on the regfile.
+- Rewrote `obj_pc.sv` to hold PC + SP + R, handling all 7 sub-ops (PC_READ/INC/SET, SP_READ/DEC/INC/SET); rdata muxes PC vs SP by sub-op. SP resets to 0xFFFF.
+- Rewrote `obj_regfile.sv` to support 16-bit pair read/write (REG_READ returns {high,low}; REG_WRITE splits to the two 8-bit regs), keeping the 8-bit r-table access.
+- Extended `obj_decode.sv` with ~24 stack states: PUSH (read pair → dec SP 2 → read SP → write high at SP+1 → write low at SP → retire), POP (read SP → inc SP 2 → read high at SP+1 → read low at SP → write pair → retire), CALL (fetch target lo/hi with PC incs → dec SP 2 → push return addr high/low → set PC → retire), RET (read SP → inc SP 2 → read high/low → set PC → retire). Helpers is_call/is_ret/is_push/is_pop/pp_idx.
+- Wired `dbg_sp` out of obj_pc → z80_core → the testbench.
+- Added 2 differential tests: 3F1 CALL 0x07; HALT; LD A,0x42; RET; LD A,0x99; HALT → A=0x42, SP=0xFFFF; 3F2 LD B,0x12; LD C,0x34; PUSH BC; POP DE; HALT → D=0x12, E=0x34, SP=0xFFFF.
+- Fixed: enum width 5→6 bits (~40 states); obj_pc rdata `always_comb` → `assign` (iverilog output-struct rule); the PUSH/CALL byte-order swap (high at SP+1, low at SP).
+- Confirmed Yosys synthesis (0 errors, ~5450 cells) and the full regression (mesh + 3A/3B/3C/3E/3F + 49 model tests).
+
+### Why
+3F's exit (design doc §13) is "stack + I/O + faults" — the stack half (CALL/RET/PUSH/POP) is the larger piece and unblocks subroutines, the single most important control-flow feature for real programs. I/O (IN/OUT) and faults (RET cc, RST) are smaller adds that can follow. Folding SP into the PC object (rather than a new obj_stack) keeps the slave count at 5 and reuses the PC object's captured-transaction handshake; the 16-bit pair access in the regfile makes PUSH/POP two-bus-transaction operations instead of four.
+
+### What worked
+- Folding SP into obj_pc was clean: 7 sub-ops, one slave, the rdata mux picks PC vs SP by sub-op. The reset SP=0xFFFF matched the oracle's default for the tests.
+- 16-bit pair access in the regfile (indices 9-12) made PUSH/POP read/write the pair in one transaction each, halving the state count vs composing H:L.
+- The CALL/RET test (count=4, SP restored) is a strong end-to-end check: it exercises fetch, multi-byte operand fetch, SP arithmetic, two memory writes (push) + two reads (pop), and PC_SET — all against the oracle.
+
+### What didn't work
+- **PUSH/CALL byte-order swap** (first cut wrote low at SP+1, high at SP). Symptom: PUSH BC/POP DE gave D=0x34, E=0x12 (swapped). The oracle pushes high (B) at the higher address (SP+1 after dec-by-2), low (C) at SP. Fixed both PUSH and CALL to write high at SP+1 then low at SP.
+- **obj_pc rdata `always_comb`** on an output struct — iverilog rejects procedural assignment to an output that's also continuously assigned (ack); fixed with a single `assign` ternary.
+- **Enum overflow** (~40 states in 5 bits) — widened to 6 bits.
+
+### What I learned
+- The Z80 stack is little-endian and pre-decrement-on-push / post-increment-on-pop: push does SP-=2 then writes high@SP+1, low@SP; pop reads high@SP+1, low@SP then SP+=2. Getting this byte-exact against the oracle (the 0x12/0x34 test) is the kind of subtle invariant the model-first discipline catches cheaply.
+- The decode FSM is now ~40 states and ~500 lines — large but uniform (every state is the same `if(!req) setup; else if(ack) latch+advance` pattern). 3D (16-bit) and the prefixes will add more; a PLA/microcode refactor (DR-6) is the eventual cleanup, but the explicit-FSM baseline is correct and testable now.
+- The stack + control flow together make the object graph a *real* CPU: it can call subroutines, pass data via the stack, and loop. The remaining 3D/prefixes/I-O are breadth, not new mechanism.
+
+### What was tricky to build
+- The stack byte order (see What didn't work). The dec-by-2-then-place model is easy to get backwards; the oracle's `push()` (dec SP, write high; dec SP, write low) placed high at the higher address, which my "dec by 2 then write at SP and SP+1" had to mirror exactly.
+- The CALL return-address computation: `pc_cur` after the two PC incs (past the 3-byte CALL) is the return address, pushed then used as the new PC via PC_SET to the target. The oracle confirmed count=4 and SP restored.
+
+### What warrants a second pair of eyes
+- The PUSH/POP byte order against a non-trivial value (3F2 used 0x12/0x34, distinct high/low — good). Add an AF push/pop test (F has flag bits) to confirm the pair write splits A/F correctly.
+- The SP arithmetic underflow/overflow (SP=0x0000 + PUSH → 0xFFFE) — not tested; the oracle wraps, the RTL wraps (`& 0xFFFF`), but add a boundary test.
+- The `pp_idx` mapping (0x##5 → 0=BC,1=DE,2=HL,3=AF via `(o>>4)&3`) — confirm against RP_PUSH in z80_isa.py (matches).
+
+### What should be done in the future
+- 3F.5: I/O (IN/OUT) — port r/w via obj_memio; and faults/RET cc/RST.
+- 3D: 16-bit ADD HL,rr + INC/DEC rr + LD rr,nn (reuse the 16-bit pair access just added to the regfile; ADD HL needs a 16-bit ALU path).
+- Phase 4: the assembler (zasm.py) targeting NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP — enough for real programs now.
+
+### Code review instructions
+- `cd pca_z80 && make sim_core` — expect `PASS: Phase 3A/3B/3C/3E/3F object graph (NOP/HALT/LD/ALU/JP/JR/CALL/RET/PUSH/POP) matches oracle`.
+- `make test` — expect mesh PASS, 3A/3B/3C/3E/3F PASS, 49 model tests passed.
+- Synthesize: `yosys -p 'read_verilog -defer -sv rtl/z80_obj.sv rtl/obj_pc.sv rtl/obj_memio.sv rtl/obj_regfile.sv rtl/obj_alu.sv rtl/obj_flags.sv rtl/obj_decode.sv rtl/z80_core.sv <top>; synth_gatemate -top <top> -luttree -nomx8'` — expect 0 errors.
+- Read `obj_decode.sv`'s S_PUSH_*/S_POP_*/S_CALL_*/S_RET_* states and the `pp_idx` helper; cross-check the byte placement against `z80_model.py`'s `push`/`pop`.
+
+### Technical details
+- Files: `rtl/z80_obj.sv` (+SP sub-ops, +pair indices), `rtl/obj_pc.sv` (rewritten: PC+SP+R), `rtl/obj_regfile.sv` (rewritten: +16-bit pair access), `rtl/obj_decode.sv` (+~24 stack states), `rtl/z80_core.sv` (+dbg_sp), `sim/tb_z80_core.sv` (+2 stack tests, +dbg_sp).
+- Oracle expected: 3F1 CALL/RET → A=0x42 SP=0xFFFF; 3F2 PUSH BC/POP DE → D=0x12 E=0x34 SP=0xFFFF. RTL matches.
+- Synth (top_zc): 0 errors, ~5450 cells.
+- `make test`: mesh + 3A/3B/3C/3E/3F + 49 model tests.
+- Stack layout: dec SP by 2; high byte at SP+1, low at SP (matches oracle's push: dec, write high; dec, write low).
+- Slips: 3E done (Step 10). 3F milestone slip to follow.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

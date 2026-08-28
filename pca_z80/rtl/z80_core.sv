@@ -19,6 +19,7 @@ module z80_core #(
     output logic [7:0]  dbg_ir,
     output logic [15:0] dbg_pc,
     output logic [7:0]  dbg_r,
+    output logic [15:0] dbg_sp,
     output logic [31:0] dbg_count,
     output logic        dbg_halted,
     output logic        dbg_faulted
@@ -39,7 +40,7 @@ module z80_core #(
     obj_pc u_pc (
         .clk(clk), .rst_n(rst_n),
         .bus_req(bus_req), .bus_resp(pc_resp),
-        .dbg_pc(dbg_pc), .dbg_r(dbg_r)
+        .dbg_pc(dbg_pc), .dbg_r(dbg_r), .dbg_sp(dbg_sp)
     );
 
     obj_memio #(.ROM_DEPTH(ROM_DEPTH), .RAM_WORDS(RAM_WORDS)) u_memio (

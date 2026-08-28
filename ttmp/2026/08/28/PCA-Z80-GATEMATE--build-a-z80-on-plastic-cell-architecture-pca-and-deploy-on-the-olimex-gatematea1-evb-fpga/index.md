@@ -32,6 +32,8 @@ RelatedFiles:
       Note: 'Z80 decode master FSM (3A/3B: fetch/NOP/HALT/LD r,n/LD r,r'')'
     - Path: repo://pca_z80/rtl/obj_flags.sv
       Note: Z80 flags register object (F, held-request bus slave)
+    - Path: repo://pca_z80/rtl/obj_regfile.sv
+      Note: Z80 register file (8-bit r-table + 16-bit pair access BC/DE/HL/AF)
     - Path: repo://pca_z80/rtl/pca_mesh.sv
       Note: COLS×ROWS neighbor-wired mesh (flat packed-1D links)
     - Path: repo://pca_z80/rtl/pca_types.sv
@@ -52,6 +54,7 @@ LastUpdated: 2026-08-28T14:40:00-04:00
 WhatFor: Coordinate the research, design, and phased implementation of a Z80 on PCA.
 WhenToUse: Start here; read the intern guide and diary before any implementation.
 ---
+
 
 
 

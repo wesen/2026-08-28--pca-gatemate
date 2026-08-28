@@ -37,11 +37,19 @@ package z80_obj;
   localparam logic [15:0] PC_READ = 16'h0000;  // read  -> rdata = PC
   localparam logic [15:0] PC_INC  = 16'h0001;  // write -> PC += wdata, R++
   localparam logic [15:0] PC_SET  = 16'h0002;  // write -> PC = wdata
+  // SP sub-ops (addr field when obj==OBJ_PC, we treat SP as part of the PC object).
+  localparam logic [15:0] SP_READ = 16'h0003;  // read  -> rdata = SP
+  localparam logic [15:0] SP_DEC  = 16'h0004;  // write -> SP -= wdata (pre-decrement for push)
+  localparam logic [15:0] SP_INC  = 16'h0005;  // write -> SP += wdata (post-increment for pop)
+  localparam logic [15:0] SP_SET  = 16'h0006;  // write -> SP = wdata (LD SP,nn / LD SP,HL)
 
   // Register-file object sub-ops (addr field when obj==OBJ_REG).
   // The addr field is the Z80 r-table index: 0=B,1=C,2=D,3=E,4=H,5=L,
   // 6=(HL) [handled by the decode via MEM, not the regfile], 7=A.
-  // Index 8 = F (flags); used from 3C onward.
+  // Index 8 = F (flags mirror).
+  // Indices 9-12 = 16-bit register PAIRS (3F): 9=BC,10=DE,11=HL,12=AF.
+  //   REG_READ  pair -> rdata = {high, low} of the pair
+  //   REG_WRITE pair -> wdata written as {high, low} of the pair
   localparam logic [15:0] REG_READ  = 16'h0000;  // read  -> rdata[7:0] = reg[addr[3:0]]
   localparam logic [15:0] REG_WRITE = 16'h0001;  // write -> reg[addr[3:0]] = wdata[7:0]
 
