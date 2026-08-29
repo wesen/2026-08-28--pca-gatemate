@@ -1808,6 +1808,67 @@ The visible symptom depended on several independently validated layers: complete
 - Build controls: `DEBUG_LED_MODE=0`, `PNR_SEED=1`, `ROM_DEPTH=512`.
 - Observed result: board user LED blinks.
 
+## Step 28: Print and establish the continuation phase plan
+
+This step established a disciplined continuation sequence for the skipped static placer and mesh-integration work. An overall thermal plan slip and a P1 start slip were printed before work began. The ticket ledger was reconciled against the proven hardware state, and a new continuation design document now maps operational phases P1–P6 to the original architecture phases. The audit corrected a key naming ambiguity: static placement and mesh integration belong to original Phase 5; runtime pressure-based placement remains a separate original Phase 7 extension.
+
+### Prompt Context
+
+**User prompt (verbatim):**
+
+> commit at appropriate intervals and keep a detailed diary as you work (using the diary format from the skill)
+> Print out a brutalist work slip with the plan / different phases for the ticket. then before stsarting a phase, plrint a split about the phase, and print one when the phase is done.
+
+**Assistant interpretation:** Continue in explicit reviewable phases, preserve a strict-format diary, commit coherent checkpoints, and use the thermal printer for one overall plan plus start/completion slips around every phase.
+
+**Inferred user intent:** Make long-running PCA integration observable both in the repository and physically, with clear boundaries, evidence, and continuation points.
+
+### What I did
+- Loaded the `brutalist-work-slip` skill and used its constrained script rather than writing layout YAML.
+- Printed the overall `Phase 7 PCA Integration Plan` slip with six continuation phases and repository QR.
+- Printed a `P1 START — Reconcile Ticket Baseline` status slip tied to commit `028e409`.
+- Inspected all ticket tasks and the onboarding guide's phase definitions.
+- Closed stale completed tasks 27, 49, 50, and 51.
+- Corrected stale task annotations for the IX/IY subset, 22 assembler tests, final resource figures, one RAM half, physical load/blink/UART, and completed report.
+- Added explicit continuation tasks P1–P6.
+- Created design-doc 04, `Static Mesh Integration Continuation Plan`.
+- Defined phase deliverables, exit gates, non-regression floor, diary/commit/printing protocol, risks, and P2 open questions.
+
+### Why
+The ticket had completed hardware work marked pending and had skipped original Phase 5 static placement while later documents loosely called mesh integration Phase 7. Starting implementation without reconciling this would mix static integration with dynamic pressure placement and make completion impossible to audit.
+
+### What worked
+- The task ledger and onboarding plan exposed the numbering conflict immediately.
+- A separate continuation sequence preserves historical phase numbers while providing practical P1–P6 checkpoints.
+- Both thermal prints succeeded through the remote almanach renderer and AtomS3R printer.
+
+### What didn't work
+- The overall printed title says `Phase 7 PCA Integration Plan`; the baseline audit then established that static placement is original Phase 5, not Phase 7. The printed phase checklist itself remains valid, but design-doc 04 records the corrected mapping. Future slips will use `STATIC MESH` or continuation phase labels and reserve `PHASE 7` for runtime pressure placement.
+
+### What I learned
+- Original Phase 5 was only partially completed: direct-bus integration passed, but `placer.py` and mesh-backed object execution were deferred.
+- Original Phase 6 hardware acceptance is complete independently of that missing static mesh path.
+
+### What was tricky to build
+The existing repository had two valid but different phase vocabularies: the original architecture phases and the new operational continuation phases. The plan keeps both explicit in a mapping table instead of silently renumbering old documentation. It also retains the direct-bus core as a differential and hardware fallback until mesh-backed execution passes.
+
+### What warrants a second pair of eyes
+- Review whether the continuation P5 hardware gate should require physical mesh-backed UART, or permit simulation/synthesis acceptance if mesh resource growth prevents a safe board image.
+- Review the P2 open questions before selecting packet and generated-artifact schemas.
+
+### What should be done in the future
+- Print a start slip before P2 and a completion slip only after P1 validation and commit.
+- Resolve placer and transport contracts before implementing `placer.py` or RTL adapters.
+
+### Code review instructions
+- Start with design-doc 04's scope mapping and preserved baseline sections.
+- Compare tasks 27, 29, 38, and 47–51 against design-docs 02 and 03.
+- Validate with `docmgr doctor --ticket PCA-Z80-GATEMATE --stale-after 30`.
+
+### Technical details
+- Continuation P1 maps to baseline audit; P2–P4 map to original Phase 5; P5 re-runs Phase 6 acceptance; P6 is publication/handoff.
+- Original Phase 7 runtime pressure placement remains outside the static integration sequence.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

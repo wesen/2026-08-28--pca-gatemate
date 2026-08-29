@@ -53,9 +53,9 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] `z80_core.sv` — wires master to slaves (OR-ack + rdata mux)
 - [x] 3A fetch/NOP/HALT — directed differential vs oracle (PASS; synth clean ~995 cells)
 - [x] 3B LD immediate/register — add obj_regfile, extend decode (PASS; synth clean ~4443 cells)
-- [ ] 3B.5 LD r,(HL)/(HL),r + LD A,(BC)/(DE)/(nn) (memory-operand LDs)
+- [x] 3B.5 LD r,(HL)/(HL),r + LD A,(BC)/(DE)/(nn) (memory-operand LDs)
 - [x] 3C 8-bit ALU + flags — add obj_alu, obj_flags (PASS; synth clean ~4760 cells)
-- [x] 3D 16-bit + IX/IY — LD rr,nn/INC-DEC rr/ADD HL,rr done (PASS); IX/IY (DD/FD) deferred
+- [x] 3D 16-bit + IX/IY — LD rr,nn/INC-DEC rr/ADD HL,rr plus IX/IY load, INC/DEC, and indexed LD A,(IX/IY+d) done (PASS); full DD/FD substitution remains pending
 - [x] 3D.5 memory-operand LDs — LD r,(HL)/(HL),r/LD A,(BC)/(DE)/(nn) done (PASS)
 - [x] 3E JP/JR/CALL/RET — JP/JR/JR cc done (PASS; synth clean ~4960 cells); CALL/RET done in 3F
 - [x] 3F stack + I/O + faults — CALL/RET/PUSH/POP done (PASS; synth clean ~5450 cells); I/O (IN/OUT) + RET cc/RST pending
@@ -66,7 +66,7 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 ### Phase 4 — Assembler + decoder round-trip
 - [x] `pca_z80/tools/zasm.py` — two-pass, no eval, prefix + displacement encoding (§11.1)  *(done; LD/ALU/JP/JR/CALL/PUSH-POP/etc.)*
 - [x] Outputs: program.hex/.bin/.lst/.sym.json §3.4.5  *(done)*
-- [x] `sim/test_assembler.py` — golden vectors, symbols, negatives (16 tests pass)  *(done)*
+- [x] `sim/test_assembler.py` — golden vectors, symbols, negatives, ROM padding/overflow (22 tests pass)  *(done)*
 - [ ] `pca_z80/tools/zdis.py` — disassembler / message trace (§11.2)  *(deferred)*
 - [x] Exit: golden vectors byte-exact; deterministic; clear diagnostics (16 tests pass + 3 cross-checks vs model)
 
@@ -79,11 +79,11 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] Exit: assembled Z80 runs on object graph in sim; differential zero divergence; selftest reaches A=8
 
 ### Phase 6 — Verification, FPGA implementation, hardware
-- [x] Synthesis/PnR/timing clean; 10 MHz positive slack; resource ledger  *(6026 LUT 14%, 2451 FF 5%, 51.41 MHz PASS at 10 MHz, 5x margin)*
-- [x] Hardware bring-up: Z80 LD (0),A drives GPIO bit 0 -> LED (proven in sim; board top + 220KB bitstream built)  *(done in sim; physical load pending board access)*
-- [ ] `openFPGALoader -b olimex_gatemateevb build/top.bit` + observe LED  *(deferred: board not connected)*
-- [ ] Engineering report + bug diary (design-doc §4.20)  *(deferred)*
-- [x] Exit (partial): synth/PnR/timing clean; LED driven by Z80 in sim; bitstream built. Physical board load + report pending.
+- [x] Synthesis/PnR/timing clean; 10 MHz positive slack; resource ledger  *(7168 LUT 17%, 2558 FF 6%, 1 RAM_HALF, 51.19 MHz PASS at 10 MHz)*
+- [x] Hardware bring-up: BRAM-backed Z80 firmware visibly drives LED and physically emits `Hi` through DirtyJTAG CDC0
+- [x] `openFPGALoader -b olimex_gatemateevb build/top.bit` + observe LED  *(physical blink confirmed)*
+- [x] Engineering report + bug diary (design-doc §4.20)  *(updated through final hardware evidence)*
+- [x] Exit: synth/PnR/timing, BRAM initialization, post-synth execution, physical blink, physical UART, report, and diary complete.
 
 ### Phase 7 — Extensions (only after baseline passes)
 - [ ] Runtime pressure-based object placement (papers 02b, 05)
@@ -91,3 +91,9 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [ ] Interrupts (IM 0/1/2), RETI/RETN
 - [ ] Undocumented-opcode bit-exactness
 - [ ] Multi-context / partial reconfiguration; VGA / PS2 / PSRAM (sibling §4.22)
+- [x] Continuation P1: reconcile stale baseline tasks and map continuation phases to original Phase 5/6/7 <!-- t:5k4r -->
+- [ ] Continuation P2: specify static placer input/output, object footprints, route tables, and acceptance tests <!-- t:kdx6 -->
+- [ ] Continuation P3: implement deterministic static placer.py with unit tests and generated artifact <!-- t:colg -->
+- [ ] Continuation P4: integrate placed Z80 object communication with PCA mesh transport in simulation <!-- t:bq1l -->
+- [ ] Continuation P5: differential regression, synthesis/PnR, and physical hardware validation of mesh-backed build <!-- t:oe2f -->
+- [ ] Continuation P6: update reports, diary, task ledger, reMarkable, and Obsidian handoff <!-- t:z5xg -->
