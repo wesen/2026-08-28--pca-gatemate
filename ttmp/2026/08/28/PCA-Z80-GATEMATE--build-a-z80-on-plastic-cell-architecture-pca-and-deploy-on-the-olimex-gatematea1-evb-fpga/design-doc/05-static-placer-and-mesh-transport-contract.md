@@ -25,6 +25,8 @@ RelatedFiles:
       Note: Existing 38-bit request and 17-bit response semantics to preserve
     - Path: repo://pca_z80/config/z80_objects.json
       Note: Canonical six-object input graph (commit 921fabc)
+    - Path: repo://pca_z80/rtl/top.sv
+      Note: Selectable physical mesh-backed board top (commit f4219ff)
     - Path: repo://pca_z80/rtl/z80_mesh_adapter.sv
       Note: Implemented request/response state machines (commit 0bb600b)
     - Path: repo://pca_z80/rtl/z80_mesh_core.sv
@@ -41,6 +43,7 @@ LastUpdated: 2026-08-28T21:15:00-04:00
 WhatFor: Freeze all observable placer and mesh-adapter behavior before implementing continuation phases P3 and P4.
 WhenToUse: Use when writing placer.py, placement tests, generated placement packages, endpoint adapters, or mesh-backed integration tests.
 ---
+
 
 
 

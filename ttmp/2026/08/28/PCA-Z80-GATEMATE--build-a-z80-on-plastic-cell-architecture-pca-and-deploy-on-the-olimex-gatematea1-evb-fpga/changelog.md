@@ -293,3 +293,12 @@ Step 32 / continuation P4: routed held Z80 object transactions through generated
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/z80_mesh_core.sv — P4 mesh-backed processor
 
+
+## 2026-08-28
+
+Step 33 / continuation P5 in progress: mesh core synthesizes/routes with 3x2 43-bit fabric (13,119 LUT, one RAM_HALF, 18.96 MHz routed), executes post-synth, loads physically, and emits Hi on CDC0; production mesh blink restored pending visual confirmation (code f4219ff).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/pca_types.sv — Routable 43-bit static packet contract
+

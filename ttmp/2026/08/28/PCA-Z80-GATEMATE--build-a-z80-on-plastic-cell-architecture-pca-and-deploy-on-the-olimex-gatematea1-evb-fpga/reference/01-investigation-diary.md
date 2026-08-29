@@ -2138,6 +2138,92 @@ Generated coordinates are scalar constants because of Icarus limitations. `z80_m
 - Generated cells: decode 0, PC 1, memory 3, register 2, ALU 4, flags 6.
 - P4 gate: six model-equal programs; no protocol errors; request=response=accept after drain.
 
+## Step 33: Synthesize, route, and physically exercise the mesh-backed core
+
+Continuation P5 added a selectable mesh-backed board top and carried the P4 object graph through GateMate synthesis, primitive execution, place-and-route, packing, JTAG loading, and physical UART capture. The first faithful 3×3/67-bit implementation met timing and fit capacity but exposed severe physical routing congestion. Two controlled reductions—removing three unused routers with a 3×2 topology and narrowing coordinates from 8 to 2 bits—produced a routable 43-bit fabric without changing command, address, data, object, or acknowledgement semantics.
+
+The resulting mesh blink build uses 32% of LUTs, one block RAM half, and passes routed timing at 18.96 MHz for a 10 MHz requirement. Post-synthesis GateMate cells execute initialized firmware and drive LED high after 227 clocks. The mesh hello image physically emits `48 69` on CDC0 and nothing on CDC1. The production mesh blink image has been rebuilt and loaded; direct visual confirmation remains the only open P5 acceptance item, so the phase task and completion slip are intentionally not closed yet.
+
+### Prompt Context
+
+**User prompt (verbatim):** "P5"
+
+**Assistant interpretation:** Execute continuation P5: synthesize and route the generated mesh-backed processor, preserve BRAM/post-synth proofs, perform physical LED/UART acceptance, commit coherent changes, maintain the diary, and print phase slips.
+
+**Inferred user intent:** Prove that P4 is not simulation-only and that real GateMate hardware executes firmware through the PCA mesh.
+
+**Commit (code):** f4219ff — "Build routable mesh-backed PCA-Z80 hardware"
+
+### What I did
+- Printed `P5 START — Prove Mesh Hardware` before modifications.
+- Added top-level `MESH_MODE` (0 direct, 1 generated mesh) while retaining direct mode as reference.
+- Made synthesis depend on generated placement and include PCA/router/adapter/mesh sources.
+- Added `sim_mesh_hello` and a mesh-specific UART board-top testbench.
+- Fixed direct hello's hierarchy after placing the direct core under `g_direct`.
+- Proved the initial 3×3/67-bit mesh synthesized, retained non-zero BRAM INIT, and executed post-synthesis.
+- Ran router2 seed 1 on 3×3/67-bit and 3×2/67-bit, plus router1 on 3×2/67-bit, with separate evidence logs.
+- Reduced canonical topology to 3×2, exactly matching six endpoints; reran all six mesh differential programs and mesh UART simulation.
+- Narrowed static coordinate fields to 2 bits, reducing packet width from 67 to 43 bits while supporting meshes up to 4×4.
+- Reran full regression, mesh UART, BRAM primitive check, and post-synthesis execution after narrowing.
+- Routed and packed mesh blink and hello images with router2 seed 1.
+- Loaded mesh blink over JTAG, then loaded mesh hello with simultaneous CDC0/CDC1 capture.
+- Captured CDC0 bytes `48 69` and zero CDC1 bytes.
+- Rebuilt and restored mesh production blink (`MESH_MODE=1`, `DEBUG_LED_MODE=0`).
+- Updated design-doc 05 and the engineering report with the physical topology, packet width, resources, timing, and acceptance state.
+
+### Why
+The nine-router, 67-bit network was logically correct but physically expensive. P5 required measured refinements that preserve protocol behavior while reducing actual routing demand, rather than claiming success from synthesis utilization or pre-route timing alone.
+
+### What worked
+- Mesh UART RTL emits `Hi`; six differential mesh programs still pass after both topology/width refinements.
+- `check_gatemate_rom.py` reports one `CC_BRAM_20K` with non-zero firmware INIT.
+- Post-synthesis mesh blink drives LED after 227 clocks.
+- Final mesh blink: 13,119/40,960 CPE_LT (32%), 3,358 FF (8%), one RAM_HALF, 540,732-byte bitstream.
+- Final mesh blink timing: 49.96 MHz placement estimate; 18.96 MHz routed maximum; pass at 10 MHz.
+- Mesh hello: 13,189 LUTs; routed maximum 23.76 MHz; physical CDC0 capture `48 69`, CDC1 empty.
+- Production mesh blink was rebuilt and JTAG loaded to 100%.
+
+### What didn't work
+- The 3×3/67-bit router2 seed-1 attempt timed out after 1,200 seconds at iteration 34 with `overuse=5271`. It fit at 22,461 LUTs (54%) and had a 47.06 MHz placement estimate, but was not routable in the allotted experiment.
+- The 3×2/67-bit router2 attempt timed out after 1,200 seconds at iteration 78 with `overuse=988`; utilization fell to 16,882 LUTs (41%) and estimated timing rose to 56.26 MHz, but physical routing still did not close.
+- The 3×2/67-bit router1 experiment was terminated by `timeout 900` with `RC=124`; after 10,000 iterations it still had 52,475 remaining arcs. Router1 was worse for this design.
+- After narrowing, Yosys rejected `localparam int PKT_W = $bits(msg_t)` with exact error `rtl/pca_types.sv:52: ERROR: syntax error, unexpected ')', expecting OP_CAST`. Replaced it with the explicit expression `3 + 4*COORD_W + 2*16`.
+- The first physical capture command backgrounded the sourced shell chain and failed with `/bin/bash: line 35: openFPGALoader: command not found`; ACM0 captured zero and ACM1's output file was absent. The corrected script backgrounded only the two `cat` processes, kept the environment in the parent, reloaded successfully, and captured the expected bytes.
+
+### What I learned
+- GateMate pre-route utilization and timing are insufficient for a wide distributed mux network; router convergence is the acceptance boundary.
+- Three unused logical endpoints still instantiate three complete physical routers. Matching mesh dimensions to occupied endpoints is a first-order hardware optimization.
+- Coordinate width dominates replicated packet-router cost. Two-bit coordinates are sufficient for the current static hardware and removed 3,763 LUTs beyond the topology reduction.
+- Firmware contents can change placement/routing convergence materially enough that both blink and hello images require independent timing-clean builds.
+
+### What was tricky to build
+The reduction had to preserve the architectural claim. Shrinking coordinates is valid only because the generated contract now rejects dimensions outside what the hardware can encode and the active topology is 3×2. Command width, address, data, source/destination semantics, exact XY routing, held request, response validation, and anti-double counts remain unchanged. Full direct and mesh regression plus post-synthesis execution were rerun before physical use.
+
+Router2 eventually closed the blink image only at iteration 185, after repeatedly reaching one or zero overused resources and then regressing. A deterministic seed and long timeout are therefore essential reproducibility details; an old `top.bit` must never be mistaken for a failed new route, so stale artifacts were removed before experiments.
+
+### What warrants a second pair of eyes
+- Review whether `COORD_W=2` should become an explicit generated/configured build parameter instead of a package constant before supporting meshes larger than 4×4.
+- Review the 18.96 MHz routed critical path through router packet selection; it passes 10 MHz but routing dominates delay.
+- Confirm the currently loaded mesh blink visually before closing P5.
+
+### What should be done in the future
+- Add a build manifest beside `top.bit` containing commit, program, MESH_MODE, debug mode, seed, packet width, topology, and checksums.
+- Investigate router datapath pipelining or narrower command-specific flits before scaling beyond six endpoints.
+- P6 should publish the final P5 evidence only after visual blink confirmation.
+
+### Code review instructions
+- Review `rtl/top.sv` generate branches and `Makefile` placement/synthesis dependencies.
+- Review `pca_types.sv` 43-bit contract and `config/z80_objects.json` 3×2 capacity.
+- Run `make test`, `make sim_mesh_hello`, `make post_synth MESH_MODE=1 PROG=blink`, then `make bit MESH_MODE=1 PROG=blink DEBUG_LED_MODE=0 PNR_SEED=1`.
+- Compare final `nextpnr.log` resource/timing lines and physical CDC captures documented here.
+
+### Technical details
+- Production topology: 3 columns × 2 rows; six occupied cells.
+- Packet: 3 command + four 2-bit coordinates + 16-bit address + 16-bit data = 43 bits.
+- Placement metrics: weighted hops 9, max hops 3.
+- Physical UART path remains FPGA TX `IO_SA_B6` → RP2040 GPIO13 → CDC0 `/dev/ttyACM0`.
+- Current loaded image: mesh-backed production blink, awaiting visual confirmation.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

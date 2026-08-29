@@ -33,7 +33,7 @@ RelatedFiles:
       Note: Detailed evidence behind updated hardware results
 ExternalSources: []
 Summary: 'Engineering report for PCA-Z80: architecture, software, verification, FPGA implementation, and hardware. The object graph is differential-tested both directly and over generated static PCA mesh placement, executes firmware from GateMate block RAM, visibly blinks the LED, and physically emits Hi through DirtyJTAG CDC0.'
-LastUpdated: 2026-08-28T21:25:00-04:00
+LastUpdated: 2026-08-28T22:40:00-04:00
 WhatFor: Summarize the PCA-Z80 build for review and handoff.
 WhenToUse: Read for the project status, results, and known limitations.
 ---
@@ -57,9 +57,10 @@ independent Python reference model (the "oracle"), and assembled from real
 `.asm` programs by a two-pass assembler. The full system is green: PCA mesh
 substrate, Z80 object graph, 49 model tests, 22 assembler tests, 6 integration
 tests, UART simulation, synthesized GateMate primitive execution, and a
-256,096-byte bitstream that uses one `RAM_HALF` and meets 10 MHz with more than
-5× margin. The physical board visibly blinks from Z80 firmware and emits bytes
-`48 69` (`Hi`) through `/dev/ttyACM0`.
+mesh-backed 540,732-byte bitstream that uses one `RAM_HALF` and meets 10 MHz at
+18.96 MHz routed maximum. The direct image visibly blinks; the mesh-backed image
+physically emits bytes `48 69` (`Hi`) through `/dev/ttyACM0`, and its production
+blink image is loaded pending final visual confirmation.
 
 ## 2. Architecture
 
@@ -69,17 +70,17 @@ The substrate is a COLS×ROWS mesh of PCA cells (`pca_mesh.sv`), each a 5-port
 XY-routing router (`pca_router.sv`) with a four-cycle held-request/ack
 handshake and a single-flit, one-in-flight anti-double guarantee (the MATE-16
 "doubled side effect" rule). The message protocol is one contract
-(`pca_types.sv`: `msg_t` 67-bit packet + `xy_route`). Directed tests prove
-A→B routing with a single accept, diagonal A→C XY routing without
-mis-delivering the on-path cell, and anti-double under random stalls. The 3×3
-mesh synthesizes clean (~12.5k cells). A deterministic static logical placer now
-assigns the six Z80 objects unique 3×3 coordinates and emits canonical JSON plus
-Icarus-compatible SystemVerilog constants (21 tests; weighted hops 8; maximum
-path 2). Request/response adapters now carry the held object-bus protocol over
+(`pca_types.sv`: `msg_t` 43-bit packet + `xy_route`). Two-bit coordinates
+support meshes through 4×4 while preserving 16-bit address and data. Directed
+tests prove A→B routing with a single accept, diagonal A→C XY routing without
+mis-delivery, and anti-double under stalls. A deterministic static logical
+placer assigns six objects unique 3×2 coordinates and emits canonical JSON plus
+Icarus-compatible SystemVerilog constants (21 tests; weighted hops 9; maximum
+path 3). Request/response adapters now carry the held object-bus protocol over
 actual PCA routers. Six assembled programs execute through generated endpoints
 with zero oracle divergence and equal request/accept/response counts. The
-physical hardware demo still uses the direct core; mesh synthesis and board
-validation are continuation P5. Runtime pressure-based movement remains a
+mesh top now synthesizes, routes, executes initialized BRAM post-synthesis, and
+physically emits UART through the board bridge. Runtime pressure-based movement remains a
 separate original Phase 7 extension.
 
 ### 2.2 The Z80 object graph (Phases 3A-3D.7)
@@ -161,22 +162,21 @@ model==RTL byte-for-byte.
 
 ## 5. FPGA implementation (Phase 6)
 
-`make bit` (Yosys `synth_gatemate -luttree -nomx8` → nextpnr-himbaechel →
-gmpack) produces `build/top.bit` (256,096 bytes for the final blink build) from
-`rtl/top.sv`. Firmware is assembled and padded to a complete 512-byte image,
+`make bit MESH_MODE=1` (Yosys `synth_gatemate -luttree -nomx8` →
+nextpnr-himbaechel → gmpack) produces `build/top.bit` (540,732 bytes for the
+mesh blink build) from `rtl/top.sv`. Firmware is assembled and padded to a complete 512-byte image,
 then loaded through a registered inferred ROM. Yosys maps it to one
 `CC_BRAM_20K`; `make post_synth` verifies non-zero primitive `INIT_*` data and
 executes the GateMate primitive netlist.
 
 | Resource | Used | Available | % |
 |---|---:|---:|---:|
-| CPE_LT (LUTs) | 7,168 | 40,960 | 17.5% |
-| CPE_FF | 2,558 | 40,960 | 6.2% |
+| CPE_LT (LUTs) | 13,119 | 40,960 | 32.0% |
+| CPE_FF | 3,358 | 40,960 | 8.2% |
 | RAM_HALF | 1 | 64 | 1.6% |
 
-Timing: 10 MHz clock, post-route max **51.19 MHz** on the main reported clock
-(another reported constrained path reaches 29.54 MHz) — both pass with ample
-margin. Router2 uses deterministic `PNR_SEED=1`; the prior default seed could
+Timing: 10 MHz clock, mesh blink post-route max **18.96 MHz** (49.96 MHz
+placement estimate) — positive routed margin. Router2 uses deterministic `PNR_SEED=1`; the prior default seed could
 remain one wire overused after thousands of iterations.
 
 The `programs/blink.asm` demo blinks the LED with nested B×C countdown loops,
@@ -189,14 +189,15 @@ counter.
 
 - **Firmware ROM:** registered 512×8 inferred ROM, one `CC_BRAM_20K`; generated
   primitive initialization is non-zero and begins with the assembled program.
-- **Post-synthesis execution:** GateMate cell-model simulation executes blink
-  firmware and drives LED high after 51 clocks.
+- **Post-synthesis execution:** GateMate cell-model simulation executes
+  mesh-backed blink firmware and drives LED high after 227 clocks.
 - **Visible LED:** BRAM-backed `blink.asm` is loaded over DirtyJTAG and visibly
   toggles the board user LED; the power LED remains continuously on.
-- **Physical UART:** BRAM-backed `hello.asm` emits `48 69` (`Hi`) through FPGA
+- **Physical mesh UART:** mesh-routed BRAM-backed `hello.asm` emits `48 69` (`Hi`) through FPGA
   TX `IO_SA_B6` → RP2040 GPIO13/UART0_RX → DirtyJTAG CDC0 → `/dev/ttyACM0`.
   A simultaneous `/dev/ttyACM1` capture receives zero bytes, as expected.
-- **Bitstream:** final blink artifact is 256,096 bytes and timing-clean.
+- **Mesh bitstream:** final blink artifact is 540,732 bytes and timing-clean;
+  it is currently loaded for visual confirmation.
 
 The full ROM/BRAM/UART evidence and staged debugging method are documented in
 design-doc 03.
@@ -216,10 +217,10 @@ design-doc 03.
    direct object tests cover RAM operations.
 4. **Incomplete architectural breadth** — no interrupts, complete alternate
    register/exchange behavior, RET cc, or RST in decode.
-5. **Mesh-backed physical hardware pending** — static placement and mesh
-   request/response execution pass six differential programs in simulation.
-   Synthesis, timing, BRAM preservation, physical blink, and UART for the
-   mesh-backed top remain continuation P5. Runtime pressure placement is
+5. **Mesh blink visual confirmation pending** — mesh placement, differential
+   execution, synthesis, timing, BRAM preservation, post-synth LED assertion,
+   JTAG load, and physical UART all pass. The restored production mesh blink
+   image awaits direct user observation. Runtime pressure placement remains
    separate Phase 7 work.
 
 ## 8. Reproducibility
@@ -227,11 +228,11 @@ design-doc 03.
 ```bash
 source ~/fpga/oss-cad-suite/environment   # OSS CAD Suite 20260825
 cd pca_z80
-make placement check_placement  # deterministic 3x3 coordinates + stale check
-make test            # mesh + object graph + model + asm + integration + 21 placer
-make sim_hello       # decode UART bytes 48 69 in RTL simulation
-make post_synth PROG=blink  # BRAM allocation/init + primitive execution proof
-make bit PROG=blink DEBUG_LED_MODE=0 PNR_SEED=1
+make placement check_placement  # deterministic 3x2 coordinates + stale check
+make test             # direct + mesh differential and all unit layers
+make sim_mesh_hello   # decode mesh-backed UART bytes 48 69
+make post_synth MESH_MODE=1 PROG=blink
+make bit MESH_MODE=1 PROG=blink DEBUG_LED_MODE=0 PNR_SEED=1
 openFPGALoader -b olimex_gatemateevb build/top.bit   # visible Z80-driven blink
 ```
 
@@ -273,7 +274,8 @@ the board LED, and physically emits `Hi` through DirtyJTAG CDC0. The PCA
 object/message architecture is proven at the substrate, direct-object-bus, and
 mesh-transport levels. Static placement is generated, and six assembled
 programs execute through real PCA routers without model divergence or doubled
-transactions. Mesh-backed synthesis and board acceptance remain P5; runtime
+transactions. The mesh core also synthesizes, routes, preserves initialized
+BRAM, executes post-synthesis, loads physically, and emits `Hi` through CDC0;
+only direct visual confirmation of the restored mesh blink remains. Runtime
 pressure-based movement is a later Phase 7 extension. Remaining work concerns
-ISA breadth and physical/dynamic PCA integration, not basic firmware, direct-core
-synthesis, board loading, or UART transport.
+ISA breadth and dynamic PCA integration.
