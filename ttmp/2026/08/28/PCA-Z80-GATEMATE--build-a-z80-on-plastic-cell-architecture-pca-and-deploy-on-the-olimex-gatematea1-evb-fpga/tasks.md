@@ -94,6 +94,6 @@ WhenToUse: "Check off tasks as each phase exit criterion is met."
 - [x] Continuation P1: reconcile stale baseline tasks and map continuation phases to original Phase 5/6/7 <!-- t:5k4r -->
 - [x] Continuation P2: specify static placer input/output, object footprints, route tables, and acceptance tests <!-- t:kdx6 -->
 - [x] Continuation P3: implement deterministic static placer.py with unit tests and generated artifact <!-- t:colg -->
-- [ ] Continuation P4: integrate placed Z80 object communication with PCA mesh transport in simulation <!-- t:bq1l -->
+- [x] Continuation P4: integrate placed Z80 object communication with PCA mesh transport in simulation <!-- t:bq1l -->
 - [ ] Continuation P5: differential regression, synthesis/PnR, and physical hardware validation of mesh-backed build <!-- t:oe2f -->
 - [ ] Continuation P6: update reports, diary, task ledger, reMarkable, and Obsidian handoff <!-- t:z5xg -->

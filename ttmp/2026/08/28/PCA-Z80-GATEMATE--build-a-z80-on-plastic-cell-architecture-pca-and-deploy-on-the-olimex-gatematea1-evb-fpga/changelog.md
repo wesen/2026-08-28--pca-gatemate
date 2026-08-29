@@ -284,3 +284,12 @@ Step 31: updated engineering report after P3 to record deterministic static plac
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/02-pca-z80-engineering-report.md — P3 report checkpoint
 
+
+## 2026-08-28
+
+Step 32 / continuation P4: routed held Z80 object transactions through generated 3x3 PCA endpoints; six assembled programs match model with request=accept=response and no protocol errors; corrected ALU response semantics (code commit 0bb600b).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/z80_mesh_core.sv — P4 mesh-backed processor
+

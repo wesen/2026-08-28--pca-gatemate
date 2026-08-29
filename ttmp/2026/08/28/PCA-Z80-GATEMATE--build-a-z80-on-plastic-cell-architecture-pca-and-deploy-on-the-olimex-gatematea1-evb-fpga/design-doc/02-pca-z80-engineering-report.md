@@ -32,7 +32,7 @@ RelatedFiles:
     - Path: repo://ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/03-gatemate-firmware-rom-bram-and-uart-bring-up-intern-guide.md
       Note: Detailed evidence behind updated hardware results
 ExternalSources: []
-Summary: 'Engineering report for the PCA-Z80 build: architecture, software, verification, FPGA implementation, hardware results, and limitations. The Z80 object graph is differential-tested against a Python oracle, executes padded firmware from inferred GateMate block RAM, visibly blinks the board LED, and physically emits Hi through DirtyJTAG CDC0.'
+Summary: 'Engineering report for PCA-Z80: architecture, software, verification, FPGA implementation, and hardware. The object graph is differential-tested both directly and over generated static PCA mesh placement, executes firmware from GateMate block RAM, visibly blinks the LED, and physically emits Hi through DirtyJTAG CDC0.'
 LastUpdated: 2026-08-28T21:25:00-04:00
 WhatFor: Summarize the PCA-Z80 build for review and handoff.
 WhenToUse: Read for the project status, results, and known limitations.
@@ -75,9 +75,12 @@ mis-delivering the on-path cell, and anti-double under random stalls. The 3×3
 mesh synthesizes clean (~12.5k cells). A deterministic static logical placer now
 assigns the six Z80 objects unique 3×3 coordinates and emits canonical JSON plus
 Icarus-compatible SystemVerilog constants (21 tests; weighted hops 8; maximum
-path 2). The hardware demo still runs the object graph directly: request/response
-adapters and mesh-backed execution are continuation P4. Runtime pressure-based
-movement remains a separate original Phase 7 extension.
+path 2). Request/response adapters now carry the held object-bus protocol over
+actual PCA routers. Six assembled programs execute through generated endpoints
+with zero oracle divergence and equal request/accept/response counts. The
+physical hardware demo still uses the direct core; mesh synthesis and board
+validation are continuation P5. Runtime pressure-based movement remains a
+separate original Phase 7 extension.
 
 ### 2.2 The Z80 object graph (Phases 3A-3D.7)
 
@@ -143,6 +146,7 @@ A pyramid, fastest to slowest, all green (`make test` in <3 s):
 | Assembler golden vectors + cross-check (pytest) | 22 | explicit bytes + model | <0.2 s |
 | Integration (assemble → object graph vs model) | 6 | z80_model.py | ~3 s |
 | Static placer | 21 | schemas, canonical bytes, XY paths, generated-SV compile | <0.3 s |
+| Mesh-backed integration | 6 | z80_model.py + transaction-count equality | ~1 s |
 | UART RTL | 1 | decoded bytes `48 69` | seconds |
 | GateMate post-synthesis firmware execution | 1 | primitive INIT + LED assertion | seconds |
 | Synthesis + PnR + timing | 1 | reports | minutes |
@@ -212,10 +216,11 @@ design-doc 03.
    direct object tests cover RAM operations.
 4. **Incomplete architectural breadth** — no interrupts, complete alternate
    register/exchange behavior, RET cc, or RST in decode.
-5. **Mesh transport not yet wired to the Z80** — static logical placement is
-   complete and deterministic, but hardware execution and UART still use the
-   direct held-request bus. Continuation P4 adds packet adapters and mesh-backed
-   simulation. Runtime pressure placement remains separate Phase 7 work.
+5. **Mesh-backed physical hardware pending** — static placement and mesh
+   request/response execution pass six differential programs in simulation.
+   Synthesis, timing, BRAM preservation, physical blink, and UART for the
+   mesh-backed top remain continuation P5. Runtime pressure placement is
+   separate Phase 7 work.
 
 ## 8. Reproducibility
 
@@ -265,9 +270,10 @@ The PCA-Z80 is a synthesizable, physically demonstrated Z80 object graph. It
 executes real assembled programs, is differential-tested against an independent
 oracle, fetches firmware from initialized GateMate block RAM, visibly drives
 the board LED, and physically emits `Hi` through DirtyJTAG CDC0. The PCA
-object/message architecture is proven at the mesh-substrate and direct-object-
-bus levels. Static logical placement is now deterministic and generated; mesh
-request/response transport remains continuation P4, while runtime pressure-based
-movement is a later Phase 7 extension. Remaining work concerns ISA breadth and
-mesh/dynamic PCA integration, not basic firmware, synthesis, board loading, or
-UART transport.
+object/message architecture is proven at the substrate, direct-object-bus, and
+mesh-transport levels. Static placement is generated, and six assembled
+programs execute through real PCA routers without model divergence or doubled
+transactions. Mesh-backed synthesis and board acceptance remain P5; runtime
+pressure-based movement is a later Phase 7 extension. Remaining work concerns
+ISA breadth and physical/dynamic PCA integration, not basic firmware, direct-core
+synthesis, board loading, or UART transport.

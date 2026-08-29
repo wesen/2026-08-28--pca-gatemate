@@ -2063,6 +2063,81 @@ The update had to preserve the proven direct-bus hardware statement while acknow
 ### Technical details
 - Placer metrics: 21 tests, weighted hops 8, maximum route 2.
 
+## Step 32: Execute the Z80 object graph through the PCA mesh
+
+Continuation P4 now transports the decode master's held requests to five generated object endpoints through the real 3×3 PCA router mesh and returns explicit response packets. A new mesh-backed core retains the proven object modules while replacing the shared response aggregation with master/slave packet adapters. Six assembled programs—including loop, stack, CALL/RET, ALU, and self-test—match the Python oracle exactly through this path.
+
+The test harness also checks a transport conservation invariant after each program: injected requests, target object acceptances, returned responses, and architectural completions are equal after drain. This is the end-to-end anti-double proof for the one-in-flight P4 design. Physical synthesis and board loading intentionally remain P5.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 31)
+
+**Assistant interpretation:** After synchronizing the engineering report, implement and verify continuation P4 mesh request/response execution, commit it, and preserve the phase diary and thermal checkpoints.
+
+**Inferred user intent:** Move the Z80 from merely generated coordinates to actual execution through PCA routers without losing model equivalence or duplicating effects.
+
+**Commit (code):** 0bb600b — "Route PCA-Z80 object transactions over the mesh"
+
+### What I did
+- Updated and committed the P3 engineering-report checkpoint as `7c6b8f7`.
+- Printed `P4 START — Route Z80 Over The Mesh` before editing transport RTL.
+- Added `z80_mesh_master_adapter`, which latches one object request, injects a stable packet, waits for a validated response, drains its network handshake, then holds architectural ack/data until decode releases request.
+- Added generic `z80_mesh_slave_adapter`, which latches a local packet, holds the existing object request through object ack, drains network request, and injects a response.
+- Added `z80_mesh_core`, consuming generated coordinate/cell constants and connecting decode, PC, memory, register file, ALU, and flags to selected `pca_mesh` local ports.
+- Added sticky protocol-error detection and request/response/accept counters.
+- Added `tb_z80_mesh_integ.sv`, `run_mesh_integ.py`, and six pytest programs in `test_mesh_integ.py`.
+- Added `make test_mesh_integ` and included it in `make test` with placement generation as a dependency.
+- Corrected design-doc 05: every response carries object `bus_resp.rdata`; `we` does not imply response data is unused.
+- Updated the engineering report after P4 to record passing mesh-backed execution and move synthesis/physical acceptance to P5.
+- Ran full direct and mesh regression, Python compile checks, and diff hygiene.
+
+### Why
+A static placer only proves coordinate generation. The project objective requires object messages to traverse PCA routing while preserving the decode/object held-request contract. Explicit adapters isolate delivery acknowledgement from architectural acknowledgement and let unchanged object RTL execute behind network endpoints.
+
+### What worked
+- The first smoke program completed with `req=14`, `resp=14`, and `accept=14`.
+- `python3 -m pytest sim/test_mesh_integ.py -q` passes six programs in about 1.2 seconds.
+- Mesh self-test reaches the same PC, R, SP, count, A–F, halted, and fault state as `z80_model.py`.
+- `make test` passes PCA substrate, direct object core, 49 model, 22 assembler, 6 direct integration, 21 placer, and 6 mesh integration tests.
+- Existing objects required no behavioral changes.
+
+### What didn't work
+- First compile command failed at elaboration. Exact error: `rtl/z80_mesh_adapter.sv:44: error: This assignment requires an explicit cast.` Icarus rejected a ternary selecting enum values for `request_pkt.cmd`. Replacing the ternary with an explicit `if/else` enum assignment fixed it.
+- The first mesh self-test run reported `PC: model=12 mesh=4`, `R: model=27 mesh=4`, `COUNT: model=14 mesh=3`, `A: model=8 mesh=66`, `B: model=0 mesh=66`, and `F: model=8 mesh=0`. The testbench had loaded stale smoke bytes because `-pvalue=ROM_FILE=...` did not override the string parameter. Switching to `-Ptb_z80_mesh_integ.ROM_FILE=\"...\"` loaded the requested image.
+- With the correct self-test loaded, it looped at PC 4. Trace showed the ALU object acknowledged `data=1010`, but the returned packet and master ack carried `0000`. The adapter followed the P2 rule "writes return zero," but ALU operations use `we=1` to carry operands and still return `{flags,result}`. The adapter now always forwards `bus_resp.rdata`; design-doc 05 records the corrected semantic.
+- The first trace was intentionally verbose and guarded by `MESH_TRACE`; normal tests suppress it.
+
+### What I learned
+- Existing object-bus `we` means operand/write direction, not "no response value." Packet protocols must preserve actual bus behavior rather than infer conventional memory semantics.
+- Icarus string-parameter overrides require the fully qualified `-Pmodule.parameter=value` form in this harness.
+- Network delivery can complete before architectural response, but target object acceptance must occur before the inbound packet is acknowledged and its response is constructed.
+
+### What was tricky to build
+The local PCA router is half-duplex at an endpoint during a request handshake. A slave cannot safely inject its response while the router is still forwarding and acknowledging the inbound request. The slave therefore uses ordered states: wait for object ack, acknowledge/drain inbound request, then inject response. The master similarly drains the response packet before exposing and holding object-bus ack.
+
+Generated coordinates are scalar constants because of Icarus limitations. `z80_mesh_core` centralizes object-id lookup and local-port packing so adapters do not duplicate coordinate literals. Unused mesh endpoints are explicitly tied inactive.
+
+### What warrants a second pair of eyes
+- Review adapter state transitions around reset during `ACK_NET` and `DRAIN_RESP`; top-level integration reset is covered at startup, while exhaustive mid-transaction reset injection remains a useful directed extension.
+- Review the macro-generated five slave instances in `z80_mesh_core` for synthesis diagnostics and maintainability.
+- P5 must measure the area/timing cost of nine routers and six endpoint adapters before changing the production top.
+
+### What should be done in the future
+- P5 should add a selectable mesh-backed board top, synthesize with the generated package, rerun BRAM INIT/post-synth execution, and attempt physical blink/UART only if timing passes.
+- Add directed malformed-response and mid-transaction reset tests if the protocol is extended beyond one request in flight.
+
+### Code review instructions
+- Start with `rtl/z80_mesh_adapter.sv` state machines, then `rtl/z80_mesh_core.sv` generated endpoint wiring.
+- Review `sim/run_mesh_integ.py` model comparison and count invariant.
+- Run `source ~/fpga/oss-cad-suite/environment && make test_mesh_integ test`.
+- Enable `MESH_TRACE=1 python3 sim/run_mesh_integ.py programs/selftest.asm` for packet/object response traces.
+
+### Technical details
+- Packet correlation: command, source coordinate, destination coordinate, and echoed address; one request in flight.
+- Generated cells: decode 0, PC 1, memory 3, register 2, ALU 4, flags 6.
+- P4 gate: six model-equal programs; no protocol errors; request=response=accept after drain.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
