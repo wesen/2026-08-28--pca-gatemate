@@ -1758,6 +1758,56 @@ The report needed enough hardware detail to be authoritative without duplicating
 - Final production blink artifact: 256,096 bytes, 7,168 CPE_LT, 2,558 CPE_FF, one RAM_HALF, 51.19 MHz primary max.
 - Physical UART: `48 69` on DirtyJTAG CDC0 `/dev/ttyACM0`.
 
+## Step 27: Confirm the production blink on physical hardware
+
+The user visually confirmed that the currently loaded production image blinks the GateMateA1-EVB user LED. This closes the last human-observation gap for the final BRAM-backed blink build: the bitstream had already passed synthesis, place-and-route, initialization inspection, primitive simulation, and JTAG loading; it is now also confirmed at the board output.
+
+### Prompt Context
+
+**User prompt (verbatim):** "continue"
+
+**User prompt (verbatim):** "it blinks btw"
+
+**Assistant interpretation:** Continue the work and record that the restored production blink image is visibly functioning on the physical board.
+
+**Inferred user intent:** Confirm successful end-to-end hardware behavior and preserve that acceptance result in the project record.
+
+### What I did
+- Recorded the user's direct physical observation that the LED blinks.
+- Distinguished this observation from prior simulation, post-synthesis, timing, and configuration evidence.
+- Updated the ticket changelog with the closed physical acceptance criterion.
+
+### Why
+A successful JTAG load does not prove visible application behavior. The user's direct observation completes the evidence chain from assembled firmware bytes through BRAM initialization and CPU execution to the board LED.
+
+### What worked
+- The production build `PROG=blink DEBUG_LED_MODE=0 PNR_SEED=1` visibly blinks.
+- The longer nested delay is human-visible, unlike the original approximately 830 Hz transition rate.
+
+### What didn't work
+- N/A
+
+### What I learned
+- The final production image now has both machine-checkable and human-observed acceptance evidence.
+
+### What was tricky to build
+The visible symptom depended on several independently validated layers: complete ROM generation, BRAM inference and initialization, processor execution, GPIO mapping, LED polarity, routing, configuration, and a human-visible delay. The isolated tests made the final observation attributable to firmware execution rather than an unverified hardware counter.
+
+### What warrants a second pair of eyes
+- N/A; the direct observation confirms the intended visible behavior.
+
+### What should be done in the future
+- Preserve `make post_synth` and the human-visible delay when changing the production demo.
+
+### Code review instructions
+- No code changed in this step.
+- The evidence chain is documented in design-docs 02 and 03 and diary Steps 23–27.
+
+### Technical details
+- Loaded image: `blink.asm`.
+- Build controls: `DEBUG_LED_MODE=0`, `PNR_SEED=1`, `ROM_DEPTH=512`.
+- Observed result: board user LED blinks.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

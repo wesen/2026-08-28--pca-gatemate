@@ -239,3 +239,12 @@ Step 26: audited and updated engineering report design-doc 02 from pre-hardware 
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/02-pca-z80-engineering-report.md — Updated final hardware report
 
+
+## 2026-08-28
+
+Step 27: user visually confirmed the final BRAM-backed production image blinks the physical GateMateA1-EVB user LED, closing end-to-end blink acceptance.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/programs/blink.asm — Physically observed production firmware
+
