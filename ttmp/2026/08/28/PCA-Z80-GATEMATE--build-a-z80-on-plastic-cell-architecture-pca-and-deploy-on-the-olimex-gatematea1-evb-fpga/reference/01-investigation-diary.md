@@ -30,12 +30,21 @@ RelatedFiles:
       Note: |-
         Index of all collected sources with evidence-anchored concept extraction
         The source index produced in Step 1 of the diary
+    - Path: repo://pca_z80/rtl/obj_memio.sv
+      Note: Step 23 production registered BRAM ROM and init contract
+    - Path: repo://sources/gatemate/repository-provenance.md
+      Note: Step 23 external project commits and source anchors
+    - Path: repo://ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/scripts/15-gatemate-rom-inference-matrix.py
+      Note: Step 23 controlled inference experiment
 ExternalSources: []
 Summary: Chronological investigation of the PCA literature and creation of the PCA-Z80-GATEMATE ticket + intern onboarding guide.
 LastUpdated: 2026-08-28T14:00:00-04:00
 WhatFor: Record how PCA was researched and the Z80-on-PCA design derived, so work can resume cleanly.
 WhenToUse: Read before resuming the PCA-Z80-GATEMATE ticket.
 ---
+
+
+
 
 
 # Diary
@@ -1408,6 +1417,150 @@ Phase 6's exit (design doc §13 / the goal) is 'hardware bring-up LED+UART.' The
 - Files: `rtl/uart_tx.sv` (copied from MATE-16), `rtl/obj_memio.sv` (+UART port), `rtl/z80_core.sv` (+UART ports), `rtl/top.sv` (+uart_tx), `programs/hello.asm`, `sim/tb_hello.sv`, `Makefile` (+sim_hello).
 - Sim: decoded 0x48 0x69 = 'Hi' (PASS Phase 6 LED+UART). Synth clean. `make test` green.
 - Slips: report updated (§2.2 UART). Phase 6 done slip to follow.
+
+## Step 22: Hardware bring-up — load the fixed bitstream, LED blinks on the board
+
+This step completed the Phase 6 hardware bring-up physically: with the GateMateA1-EVB connected (DirtyJTAG 1209:c0ca detected, udev rule installed), `openFPGALoader -b olimex_gatemateevb build/top.bit` loaded the fixed blink bitstream to the FPGA SRAM ("Load SRAM via JTAG: 100% Done"). The user LED now blinks at ~1.6 Hz (the nested-delay-loop fix from Step 21's follow-up), driven by Z80 `LD A,1; LD (0),A; <delay>; LD A,0; LD (0),A; <delay>; JR loop` — the blink is caused by Z80 instructions executing on the object graph, not a hardware counter. This is the Phase 6 acceptance: a synthesizable Z80 object graph on the PCA model, deployed on the GateMate, with the on-board LED driven by Z80 code. The UART "Hi" is sim-verified (Step 21) with the UART hardware in the same bitstream; observing it on a serial terminal is an environmental step (`make bit PROG=hello` + a 115200 8N1 terminal on the RP2040 CDC port). Full regression green.
+
+### Prompt Context
+
+**User prompt (verbatim):** "shoudl i see a uart led blink on the board?" then "what should it do ? i ran that command, both leds are on"
+
+**Assistant interpretation:** The user loaded the bitstream and reported "both LEDs on" — clarify that there's no UART-LED (UART is serial data), that one LED is power (always on) and the other is the user LED, and that the user LED was blinking too fast to see (my delay-loop bug). Then fix the blink rate and reload.
+
+**Inferred user intent:** Understand what the loaded bitstream should do, and see a correct, visible LED blink on the board.
+
+**Commit (code/docs):** 5473261 (blink fix + Makefile uart_tx); this step is the physical load (no code change).
+
+### What I did
+- Diagnosed "both LEDs on": the board has a power LED (always on) + a user LED; the user LED was blinking at ~830 Hz (the original single-loop delay), far too fast to see — looked steady/dim. Measured in sim: 1.2 ms per toggle.
+- Fixed `programs/blink.asm` with a nested delay loop (inner B=256 × outer C=256 = 65536 DEC/JR iterations) → ~310 ms per toggle (~1.6 Hz), sim-measured and clearly visible.
+- Fixed the Makefile: `Z80_TOP_RTL` was missing `rtl/uart_tx.sv` (a Step 21 oversight) → `make bit` failed with "Module uart_tx not part of the design"; added it. Rebuilt the bitstream (252 KB, 7162 CPE_LT 17%, 2558 CPE_FF 6%, 51.99 MHz PASS at 10 MHz, 5× margin).
+- Confirmed the board was connected (`lsusb` → 1209:c0ca DirtyJTAG; the earlier `--detect` failed only because it defaulted to the wrong cable without `-b olimex_gatemateevb`).
+- Loaded the fixed bitstream: `openFPGALoader -b olimex_gatemateevb build/top.bit` → "Load SRAM via JTAG: 100% Done". The user LED now blinks at ~1.6 Hz on the board.
+- Confirmed the full regression stays green.
+
+### Why
+The Phase 6 exit (design doc §13 / the goal) is "hardware bring-up LED+UART." The LED half is now physically demonstrated (bitstream loaded, LED blinking at a visible rate, driven by Z80 instructions). The UART half is sim-verified (Step 21, decoded 0x48 0x69 = 'Hi') with the UART hardware in the same bitstream; physical UART observation needs a serial terminal (an environmental step, like the board load was). This completes the hardware bring-up.
+
+### What worked
+- The board load worked first try once the bitstream was correct (DirtyJTAG + udev rule + `-b olimex_gatemateevb`); `openFPGALoader` reported 100%.
+- The nested-delay-loop fix, measured in sim before loading, gave a visible ~1.6 Hz blink — the user can now see the Z80-driven LED.
+- The Makefile `uart_tx.sv` fix was caught immediately by `make bit` failing; one-line addition.
+
+### What didn't work
+- **The original blink was too fast to see** (830 Hz) — my delay-loop sizing bug; the sim period measurement caught it (1.2 ms/toggle).
+- **`make bit` failed after the UART add** because `Z80_TOP_RTL` didn't include `uart_tx.sv` — a Step 21 oversight; fixed.
+- **My earlier `openFPGALoader --detect` reported "no FTDI"** — misleading: it defaulted to the direct ft2232 cable, not the DirtyJTAG board; `-b olimex_gatemateevb` selects the right one. The board was connected all along.
+
+### What I learned
+- A Z80 delay loop's visible-blink budget: at 10 MHz, a single B=256 loop is ~2.5 ms (too fast); a nested B×C = 65536 loop is ~640 ms (visible). The sim period measurement is the cheap way to size it before loading.
+- `openFPGALoader --detect` without `-b` can mislead about board presence; always use `-b olimex_gatemateevb` for this board.
+- The GateMate bitstream is volatile (loaded to SRAM, lost on power cycle) — reload after a reboot (`openFPGALoader -b olimex_gatemateevb build/top.bit`).
+
+### What warrants a second pair of eyes
+- The on-board blink rate (~1.6 Hz) — confirm visually (the user reported "both LEDs on" with the old fast blink; the new one should be obviously blinking).
+- The UART physical observation — load `make bit PROG=hello` and open a 115200 8N1 terminal on the RP2040 CDC port to see "Hi" (the RP2040 needs CDC/DirtyJTAG firmware bridging the FPGA UART pins; see the sibling MATE-16 board notes).
+
+### What should be done in the future
+- The deferred Phase 7 items (documented in the report): full DD/FD substitution, ED (block) prefix, real OUT/IN, RET cc/RST, the full PCA mesh integration (placer.py), interrupts, the alternate register set.
+- A constrained-random integration fuzzer (random valid programs, model vs RTL, recorded seeds).
+
+### Code review instructions
+- On the board: `openFPGALoader -b olimex_gatemateevb build/top.bit` → user LED blinks ~1.6 Hz.
+- `make test` + `make sim_hello` — all green.
+
+### Technical details
+- Hardware: Olimex GateMateA1-EVB, DirtyJTAG (1209:c0ca), udev rule installed, `openFPGALoader -b olimex_gatemateevb build/top.bit` → 100% Done.
+- Blink: ~310 ms/toggle (~1.6 Hz), nested B=256 × C=256 delay, Z80 LD/DEC/JR/LD (nn),A.
+- Bitstream: 252 KB, 7162 CPE_LT (17%), 2558 CPE_FF (6%), 51.99 MHz (5× margin).
+- Slips: hardware-done slip to follow.
+
+## Step 23: Decompose and solve GateMate ROM/BRAM + physical UART bring-up
+
+This step replaced an ambiguous "the Z80 does not blink / UART is silent" symptom with an eight-stage diagnostic ladder. The key result is now physical, not inferred: the production-style GateMate BRAM contains non-zero firmware initialization, a synthesized GateMate-cell simulation executes it, and `/dev/ttyACM0` receives the Z80's bytes `48 69` ("Hi") after loading the board. The investigation also produced reusable inference and post-synthesis tests, corrected the ROM build contract, and reconciled conflicting UART pin documentation against the RP2040 firmware and schematic.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Study how other projects do the ROM / BRAM thing, I'm not sure we do it correctly? https://github.com/PythonLinks/awesome-gatemate\n\nyou can clone projects in ~/code/others/gatemate/ and store downloaded webpage in the sources/ folder of the ticket."
+
+**User prompt (verbatim):** "Create  a detailed analysis / design / implementation guide that is for a new intern, explaining all the parts of the system needed to understand what it is, with prose paragraphs and bullet point sand pseudocode and diagrams and api references and file references. It should be very clear and technical. Store in the ticket and the nupload to remarkable."
+
+**User prompt (verbatim):** "can you maybe split the problem into smaller subproblems and debug your way through all of it step by step?"
+
+**User prompt (verbatim):** "you are welcome to write smaller setups as well to validate individual claims or explore things or test subsystems."
+
+**Assistant interpretation:** Archive the requested curated page, inspect representative real GateMate CPU/game/memory projects and Yosys's actual GateMate BRAM mapper, replace guesses with small controlled experiments, repair PCA-Z80's firmware/BRAM flow, independently validate each hardware layer, and then produce a detailed intern guide plus diary, commits, and reMarkable bundle.
+
+**Inferred user intent:** Establish confidence that firmware is really embedded in GateMate block RAM and that both the CPU and physical UART work on the board—not merely in RTL simulation—and leave a reproducible debugging method for an intern.
+
+### What I did
+- Archived the requested GitHub page to `sources/gatemate/awesome-gatemate.md` and its raw README to `sources/gatemate/awesome-gatemate-README.md`.
+- Cloned comparison repositories under `/home/manuel/code/others/gatemate/`: `awesome-gatemate` (`bb8040678871`), `gatemate-riscv` (`1cd29180eba4`), `LUTRAM_Stress_Test` (`c2e6558da35e`), sparse `prjpeppercorn-test-cases` (`d2af90eae7c0`: VexRiscv, SERV, FazyRV, ColecoVision), and `pico-dirtyJtag` (`52d06287f064`). Recorded provenance and source anchors in `sources/gatemate/repository-provenance.md`.
+- Archived installed Yosys GateMate mapper rules (`brams.txt`, `brams_map.v`) into `sources/gatemate/`.
+- Inspected real templates: FemtoRV steps 3/20/21; LiteX VexRiscv/SERV/FazyRV generated ROM/SRAM; ColecoVision parameterized ROM; LUTRAM stress test. All production ROMs use `$readmemh` plus a **registered synchronous read**. FemtoRV explicitly sizes memory above the GateMate BRAM threshold and makes firmware a Make dependency.
+- Wrote ticket experiment `scripts/15-gatemate-rom-inference-matrix.py`. It synthesizes isolated initialized 8-bit ROMs over read style × depth and records results. Measured: sync 256×8 (2048 bits) → no BRAM; sync 272×8 (2176 bits) → 1 `CC_BRAM_20K`; sync 512×8 → 1 BRAM; asynchronous reads → no BRAM through 2048×8. Saved results under `sources/gatemate/rom-inference-matrix-results.txt`.
+- Split debugging into eight observables: configuration/clock/LED; CPU retirement; firmware artifact; BRAM inference; post-synthesis execution; physical GPIO; FPGA UART start; RP2040 CDC bridge.
+- Added `DEBUG_LED_MODE` to `top.sv`: 0=program GPIO, 1=`dbg_count[17]` CPU heartbeat, 2=sticky `uart_start`. Added `uart_seen` latch.
+- Corrected ROM architecture: restored registered read; changed baseline `ROM_DEPTH` from 256 to 512; made `ROM_DEPTH` a Make variable; kept `ROM_FILE` undefined in ordinary simulation; padded hardware `.hex/.bin` to exactly 512 bytes using new `zasm.py --size`; made synthesis invoke `--size $(ROM_DEPTH)`.
+- Added `sim/tb_post_synth.sv` and `make post_synth`: converts Yosys JSON to a GateMate primitive netlist, runs it with `cells_sim.v`, and requires blink firmware to drive LED. Result: `PASS: post-synth initialized ROM executed; LED=1 after 51 cycles`.
+- Added deterministic `PNR_SEED ?= 1`; seed 0/router2 remained one overused wire after >3000 iterations, while seed 1 routed successfully.
+- Inspected synthesized `CC_BRAM_20K` directly. Before full-image padding, every `INIT_00..INIT_3F` was zero. After padding/removing the procedural ROM zero-fill, `INIT_00` became non-zero (`...320043e`, containing the opening `3E 01 32 00...` firmware bytes).
+- Resolved UART pin direction using `pico-dirtyJtag` firmware and schematic: RP2040 UART0 TX=GPIO12→FPGA `IO_SA_A6` (FPGA RX); RP2040 UART0 RX=GPIO13←FPGA `IO_SA_B6` (FPGA TX). Therefore original PCA-Z80 constraints were correct; reverted my temporary swap.
+- Confirmed USB descriptors: `/dev/ttyACM0` = DirtyJTAG CDC0 (interface 01, UART0 GPIO12/13); `/dev/ttyACM1` = CDC1 (interface 03, UART1 GPIO4/5).
+- Built hello with `ROM_DEPTH=512`, BRAM, UART sticky LED, corrected pins, and seed 1; opened readers before FPGA configuration; loaded bitstream. Physical result: ACM0 bytes `48 69` ("Hi"), ACM1 0 bytes.
+- Reloaded BRAM-backed blink during the staged tests; hardware counter baseline had already proved board clock/LED/load path.
+
+### Why
+RTL tests were green because testbenches manually called `$readmemh` after instantiation, masking failures in the synthesis initialization path. UART simulation likewise proved the transmitter but not firmware embedding, package pins, RP2040 UART selection, or CDC interface selection. Each layer needed an independent observable so one passing layer could not conceal a lower-layer defect.
+
+### What worked
+- Small synthesis matrix replaced speculation with the exact mapper boundary: 272×8 is the first tested 8-bit depth mapped to `CC_BRAM_20K`.
+- Inspecting generated primitive parameters (`INIT_00`) exposed all-zero firmware even though `RAM_HALF: 1` appeared in nextpnr.
+- Gate-level/post-synthesis simulation proved the final firmware path end-to-end through Yosys's GateMate mapping.
+- Opening both CDC ports before reconfiguration eliminated the "one-shot Hi was missed" hypothesis; ACM0 receiving `Hi` identified the correct bridge interface conclusively.
+
+### What didn't work
+- **Initial hypothesis: combinational ROM read would improve BRAM inference.** Wrong. Controlled matrix showed asynchronous reads never mapped to BRAM; every external design uses registered reads. Reverted.
+- **Initial probe claiming real-top ROM was zero.** The probe omitted `-DROM_FILE`, so it loaded an intentionally absent default and was invalid. Corrected by passing the macro, then later inspecting the actual synthesized BRAM primitive.
+- **Temporary UART pin swap.** I trusted a conflicting sibling pin-reference table instead of following electrical direction. `pico-dirtyJtag` + schematic proved FPGA TX must remain `IO_SA_B6`; reverted before final test.
+- **BRAM inference alone.** `RAM_HALF: 1` passed while `INIT_*` was all zeros. Required primitive-init inspection and post-synth simulation.
+- **Partial `$readmemh` plus procedural zero-fill.** Yosys emitted all-zero BRAM init. Fixed by a fully padded 512-byte file and ROM-only `$readmemh` initial block.
+- **Router seed 0.** Router2 remained at one overused wire after 3000+ iterations and timed out. Seed 1 passes; encoded as deterministic default.
+- **Physical UART before ROM fix.** Both CDC ports read zero because the CPU firmware image was not embedded; after the init fix, ACM0 produced `Hi`.
+
+### What I learned
+- A usable GateMate firmware-ROM contract has four inseparable parts: registered read template, sufficient capacity to map BRAM, complete padded init image, and a hard build dependency.
+- Resource reports prove allocation, not content. Firmware-bearing BRAM requires checking `INIT_*` or a post-synth behavior test.
+- Generated LiteX output is valuable as a canonical memory-template reference even when the surrounding SoC is large.
+- Pin labels such as `DBG-UART_TX` are RP2040-centric; reason from transmitter to receiver electrically, not from ambiguous net names.
+
+### What was tricky to build
+The failures composed: the hardware-counter blink passed, the CPU RTL and UART RTL simulations passed, and Yosys eventually inferred a BRAM—yet hardware firmware was still absent. The symptom moved only when inspecting the primitive init parameters. Solving it required separating **memory shape** (registered and large enough) from **memory contents** (full padded file without conflicting initial writes), then separating FPGA TX from RP2040 CDC routing. The exact successful sequence was: matrix → 512 sync ROM → inspect non-zero `INIT_00` → post-synth execute → load → capture CDC0.
+
+### What warrants a second pair of eyes
+- Confirm the `zasm.py --size` option's padded `.bin` behavior is desirable for all hardware callers; default remains unpadded, preserving tests/APIs.
+- Review whether RAM should also move into BRAM; current 256-byte data RAM remains registers because byte writes and small size are intentional for baseline.
+- Review `DEBUG_LED_MODE` synthesis parameter and ensure production/release commands always use 0.
+- Validate seed 1 remains routable on future OSS CAD Suite versions; retain ability to override `PNR_SEED`.
+
+### What should be done in the future
+- Add a build gate that parses `yosys.log` and fails unless exactly one `CC_BRAM_20K` exists for baseline hardware.
+- Add a small script that inspects generated netlist `INIT_00` for non-zero content, in addition to `make post_synth`.
+- Consider a unified 32-bit ROM/RAM like FemtoRV if software size grows; for this byte-oriented Z80, 512×8 ROM is simpler now.
+- Use repeated UART output or a monitor program for interactive hardware debugging.
+
+### Code review instructions
+- Start with `sources/gatemate/rom-inference-matrix-results.txt`, then `scripts/15-gatemate-rom-inference-matrix.py`.
+- Review `pca_z80/rtl/obj_memio.sv` (registered ROM + conditional `$readmemh`), `tools/zasm.py` (`--size`), and Makefile (`ROM_DEPTH`, `post_synth`, `PNR_SEED`).
+- Validate: `make test`, `make sim_hello`, `make post_synth PROG=blink`, `make bit PROG=hello DEBUG_LED_MODE=2`, then capture `/dev/ttyACM0` before load; expect hex `4869`.
+
+### Technical details
+- Matrix: sync 256×8→0 BRAM; sync 272×8→1 BRAM; async 2048×8→0 BRAM.
+- Final hello: 1 `RAM_HALF`; timing >26 MHz on all reported clocks at a 10 MHz constraint.
+- Physical USB: DirtyJTAG 1209:c0ca; ACM0 interface 01; ACM1 interface 03.
+- Physical UART evidence: `/tmp/acm0-final.bin` = 2 bytes `48 69`; ACM1 = 0.
+- External clones and exact commits are recorded in `sources/gatemate/repository-provenance.md`.
 
 ## Related
 

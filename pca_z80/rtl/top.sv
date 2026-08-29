@@ -10,7 +10,10 @@
 `default_nettype none
 
 module top #(
-    parameter int ROM_DEPTH = 256
+    parameter int ROM_DEPTH = 512,
+    // 0: program GPIO, 1: retired-instruction heartbeat, 2: sticky UART start.
+    // Diagnostic only; production builds leave this at 0.
+    parameter int DEBUG_LED_MODE = 0
 ) (
     input  logic clk_10m,
     input  logic fpga_but,        // active-low user button (unused in the demo)
@@ -26,6 +29,7 @@ module top #(
     logic        dbg_halted, dbg_faulted;
     logic [7:0]  uart_byte;
     logic        uart_start, uart_ready;
+    logic        uart_seen;
 
     // GateMate configuration-reset primitive (real in synth, modeled in sim).
     CC_USR_RSTN u_cfg_reset (.USR_RSTN(cfg_rst_n));
@@ -63,8 +67,23 @@ module top #(
         .tx     (uart_tx_pin)
     );
 
-    // The Z80 program drives GPIO bit 0 -> the onboard LED.
-    assign user_led    = gpio[0];
+    // Sticky proof that the CPU issued at least one UART transaction.
+    always_ff @(posedge clk_10m or negedge rst_n) begin
+        if (!rst_n) uart_seen <= 1'b0;
+        else if (uart_start) uart_seen <= 1'b1;
+    end
+
+    // Select one observable per diagnostic stage. Production: GPIO from Z80
+    // program. Heartbeat: retired-instruction count. UART: sticky start event.
+    generate
+        if (DEBUG_LED_MODE == 1) begin : g_cpu_heartbeat
+            assign user_led = dbg_count[17];
+        end else if (DEBUG_LED_MODE == 2) begin : g_uart_seen
+            assign user_led = uart_seen;
+        end else begin : g_program_gpio
+            assign user_led = gpio[0];
+        end
+    endgenerate
 endmodule
 
 `default_nettype wire

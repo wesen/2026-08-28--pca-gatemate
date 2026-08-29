@@ -295,14 +295,19 @@ def assemble(text, origin=0x0000):
         lst.append("%04X: %-20s %s" % (a, " ".join("%02X"%x for x in bs), src))
     return image, symtab, lst
 
-def write_outputs(image, symtab, lst, out_dir, name):
+def write_outputs(image, symtab, lst, out_dir, name, size=None):
     import os
     os.makedirs(out_dir, exist_ok=True)
+    output_image = image
+    if size is not None:
+        if len(image) > size:
+            raise AsmError("program is %d bytes, exceeds requested image size %d" % (len(image), size))
+        output_image = image + bytes(size - len(image))
     with open(os.path.join(out_dir, name + ".hex"), "w") as f:
-        for b in image:
+        for b in output_image:
             f.write("%02X\n" % b)
     with open(os.path.join(out_dir, name + ".bin"), "wb") as f:
-        f.write(image)
+        f.write(output_image)
     with open(os.path.join(out_dir, name + ".lst"), "w") as f:
         f.write("\n".join(lst) + "\n")
     with open(os.path.join(out_dir, name + ".sym.json"), "w") as f:
@@ -314,12 +319,15 @@ def main():
     ap.add_argument("-o", "--out", default="build")
     ap.add_argument("-n", "--name", default="program")
     ap.add_argument("--origin", default="0x0000")
+    ap.add_argument("--size", type=lambda s: int(s, 0), default=None,
+                    help="pad .hex/.bin image to exactly this many bytes")
     a = ap.parse_args()
     with open(a.src) as f: text = f.read()
     origin = int(a.origin, 0)
     image, symtab, lst = assemble(text, origin)
-    write_outputs(image, symtab, lst, a.out, a.name)
-    print("assembled %s: %d bytes, %d symbols" % (a.src, len(image), len(symtab)))
+    write_outputs(image, symtab, lst, a.out, a.name, a.size)
+    suffix = " (image %d bytes)" % a.size if a.size is not None else ""
+    print("assembled %s: %d bytes%s, %d symbols" % (a.src, len(image), suffix, len(symtab)))
 
 if __name__ == "__main__":
     main()

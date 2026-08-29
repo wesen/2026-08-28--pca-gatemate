@@ -15,6 +15,7 @@ SIM_TOP  ?= tb_top
 RTL_DIR  := rtl
 SIM_DIR  := sim
 BUILD    := build
+YOSYS_DATDIR := $(shell yosys-config --datdir 2>/dev/null)
 
 # Phase 0: just reset_sync + a minimal top that proves the flow.
 RTL_SYNTH := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
@@ -27,6 +28,9 @@ Z80_TOP_RTL := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.s
              $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv \
              $(RTL_DIR)/uart_tx.sv $(RTL_DIR)/top.sv
 PROG ?= blink
+ROM_DEPTH ?= 512
+DEBUG_LED_MODE ?= 0
+PNR_SEED ?= 1
 
 # Phase 1: the PCA routing substrate (types/router/cell/mesh) + testbench.
 PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cell.sv $(RTL_DIR)/pca_mesh.sv
@@ -114,8 +118,18 @@ sim:
 # Phase 6: synthesize the Z80 top with the assembled program ROM.
 synth:
 	@mkdir -p $(BUILD)
-	python3 tools/zasm.py programs/$(PROG).asm -o $(BUILD) -n top_prog
-	yosys -ql $(BUILD)/yosys.log -p 'read_verilog -defer -sv -DROM_FILE="$(BUILD)/top_prog.hex" $(Z80_TOP_RTL); chparam -set ROM_DEPTH 256 top; synth_gatemate -top top -luttree -nomx8; stat; write_json $(BUILD)/top.json;'
+	python3 tools/zasm.py programs/$(PROG).asm -o $(BUILD) -n top_prog --size $(ROM_DEPTH)
+	yosys -ql $(BUILD)/yosys.log -p 'read_verilog -defer -sv -DROM_FILE="$(BUILD)/top_prog.hex" $(Z80_TOP_RTL); chparam -set ROM_DEPTH $(ROM_DEPTH) -set DEBUG_LED_MODE $(DEBUG_LED_MODE) top; synth_gatemate -top top -luttree -nomx8; stat; write_json $(BUILD)/top.json;'
+
+# Gate-level firmware smoke test: proves BRAM init survives synth_gatemate.
+.PHONY: post_synth
+post_synth: synth
+	yosys -q -p 'read_json $(BUILD)/top.json; write_verilog -noattr $(BUILD)/top_synth.v'
+	python3 tools/check_gatemate_rom.py $(BUILD)/top_synth.v
+	iverilog -g2012 -s tb_post_synth -o $(BUILD)/post_synth.vvp \
+	  $(YOSYS_DATDIR)/gatemate/cells_sim.v sim/CC_USR_RSTN.sv \
+	  $(BUILD)/top_synth.v sim/tb_post_synth.sv
+	vvp $(BUILD)/post_synth.vvp
 
 # Place and route (sibling §1.8): nextpnr-himbaechel, router2, CCF + SDC.
 pnr: synth
@@ -123,7 +137,7 @@ pnr: synth
 	nextpnr-himbaechel -l $(BUILD)/nextpnr.log --device $(DEVICE) \
 	  --json $(BUILD)/top.json \
 	  -o ccf=$(CCF) -o out=$(BUILD)/top.txt \
-	  --sdc $(SDC) --router router2
+	  --sdc $(SDC) --router router2 --seed $(PNR_SEED)
 
 # Bitstream (sibling §1.8): gmpack.
 bit: pnr

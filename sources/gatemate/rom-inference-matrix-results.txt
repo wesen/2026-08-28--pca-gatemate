@@ -1,0 +1,15 @@
+style depth bits BRAM20 BRAM40 DFF
+sync 128 1024 0 0 8
+sync 256 2048 0 0 8
+sync 272 2176 1 0 0
+sync 436 3488 1 0 0
+sync 512 4096 1 0 0
+sync 1024 8192 1 0 0
+sync 2048 16384 1 0 0
+async 128 1024 0 0 0
+async 256 2048 0 0 0
+async 272 2176 0 0 0
+async 436 3488 0 0 0
+async 512 4096 0 0 0
+async 1024 8192 0 0 0
+async 2048 16384 0 0 0

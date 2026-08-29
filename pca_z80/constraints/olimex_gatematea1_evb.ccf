@@ -12,7 +12,9 @@ Pin_out "user_led" Loc = "IO_SB_B6";
 # pressed. (Confirmed against litex-boards olimex_gatemate_a1_evb.py.)
 Pin_in  "fpga_but" Loc = "IO_SB_B7";
 
-# Onboard UART through the RP2040 (no external wiring), per LiteX platform:
-#   serial.tx -> IO_SA_B6, serial.rx -> IO_SA_A6  (LiteX names tx/rx host-side).
+# Onboard UART through RP2040 UART0. Electrical direction from the schematic
+# and pico-dirtyJtag firmware (TX=GPIO12, RX=GPIO13):
+#   FPGA TX -> IO_SA_B6 -> RP2040 GPIO13/UART0_RX
+#   FPGA RX <- IO_SA_A6 <- RP2040 GPIO12/UART0_TX
 Pin_out "uart_tx_pin" Loc = "IO_SA_B6";
 Pin_in  "uart_rx_pin" Loc = "IO_SA_A6";

@@ -193,3 +193,13 @@ Step 21 / Phase 6: added UART TX (Z80 emits 'Hi' over UART, completing LED+UART 
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/uart_tx.sv — 8-N-1 UART transmitter (reused from MATE-16, Z80-driven via memory-mapped port)
 
+
+## 2026-08-28
+
+Step 23: decomposed GateMate ROM/UART bring-up into eight independently observable stages; archived awesome-gatemate and mapper sources; cloned and studied FemtoRV, LiteX VexRiscv/SERV/FazyRV, ColecoVision, LUTRAM stress, and pico-dirtyJtag; measured sync-ROM BRAM threshold (272x8); fixed 512-byte registered/padded firmware ROM; added BRAM INIT checker + post-synth GateMate simulation + debug LED modes + deterministic PnR seed; physically captured Z80 UART bytes 48 69 ('Hi') on /dev/ttyACM0.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_memio.sv — Corrected ROM implementation
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/sources/gatemate/rom-inference-matrix-results.txt — Measured inference evidence
+

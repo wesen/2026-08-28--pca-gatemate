@@ -1,6 +1,3 @@
-`ifndef ROM_FILE
-`define ROM_FILE "build/default.hex"
-`endif
 // obj_memio.sv — the Z80 memory + I/O object (design-doc §6.4), Phase 6.
 //
 // A held-request bus slave holding a byte-addressed program ROM (loaded via
@@ -13,7 +10,7 @@
 import z80_obj::*;
 
 module obj_memio #(
-    parameter int ROM_DEPTH = 256,   // bytes
+    parameter int ROM_DEPTH = 512,   // bytes; >=272×8 forces GateMate CC_BRAM_20K
     parameter int RAM_WORDS = 256   // byte RAM
 ) (
     input  logic      clk,
@@ -25,15 +22,14 @@ module obj_memio #(
     output logic       uart_tx_start,   // UART TX start pulse (one cycle)
     input  logic       uart_tx_ready    // UART TX ready (from uart_tx)
 );
-    // Program ROM (byte-addressed, synchronous-read for BRAM inference).
-    // ROM init at synthesis via $readmemh of the file named by `ROM_FILE
-    // (defined on the Yosys command line with -DROM_FILE="path").
+    // Program ROM: registered/synchronous read, the template used by FemtoRV,
+    // LiteX SERV/FazyRV/VexRiscv, and ColecoVision on GateMate. ROM_DEPTH=512
+    // is intentionally above Yosys's measured 8-bit BRAM threshold (272 words).
     logic [7:0] rom [0:ROM_DEPTH-1];
     logic [7:0] ram [0:RAM_WORDS-1];
     logic [7:0] rom_q;
     logic [7:0] ram_q;
     logic [7:0] gpio;
-
     logic        captured;
     logic [15:0] addr_q;
     logic        we_q;
@@ -44,10 +40,13 @@ module obj_memio #(
     wire is_gpio = (bus_req.addr == 16'h0000);
     wire is_uart = (bus_req.addr == 16'h0001);
 
+    // Synthesis ROM init. Simulation testbenches load dut.u_memio.rom directly,
+    // so ROM_FILE is intentionally undefined there (avoids a hidden default).
+`ifdef ROM_FILE
+    initial $readmemh(`ROM_FILE, rom);
+`endif
     initial begin
-        for (int i = 0; i < ROM_DEPTH; i++) rom[i] = 8'h00;  // fill NOP
         for (int i = 0; i < RAM_WORDS; i++) ram[i] = 8'h00;
-        $readmemh(`ROM_FILE, rom);   // ROM init (overridden by sim $readmemh after)
     end
 
     always_ff @(posedge clk or negedge rst_n) begin

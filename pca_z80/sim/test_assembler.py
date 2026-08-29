@@ -8,7 +8,7 @@
 # bytes the model can run.)
 import sys, os, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
-from zasm import assemble
+from zasm import AsmError, assemble, write_outputs
 from z80_model import Z80
 
 def asm_bytes(text):
@@ -170,3 +170,20 @@ def test_determinism():
     a = asm_bytes(text)
     b = asm_bytes(text)
     assert a == b == bytes([0x3E, 0x42, 0x47, 0x76])
+
+
+def test_padded_hardware_image(tmp_path):
+    image, symtab, listing = assemble("LD A,0x42\nHALT")
+    write_outputs(image, symtab, listing, str(tmp_path), "firmware", size=512)
+    raw = (tmp_path / "firmware.bin").read_bytes()
+    hex_lines = (tmp_path / "firmware.hex").read_text().splitlines()
+    assert len(raw) == 512 and raw[:3] == bytes([0x3E, 0x42, 0x76])
+    assert raw[3:] == bytes(509)
+    assert len(hex_lines) == 512 and hex_lines[:3] == ["3E", "42", "76"]
+
+
+def test_padded_hardware_image_rejects_overflow(tmp_path):
+    image, symtab, listing = assemble("LD A,0x42\nHALT")
+    import pytest
+    with pytest.raises(AsmError, match="exceeds requested image size"):
+        write_outputs(image, symtab, listing, str(tmp_path), "firmware", size=2)
