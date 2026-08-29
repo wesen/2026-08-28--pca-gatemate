@@ -203,3 +203,21 @@ Step 23: decomposed GateMate ROM/UART bring-up into eight independently observab
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/obj_memio.sv — Corrected ROM implementation
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/sources/gatemate/rom-inference-matrix-results.txt — Measured inference evidence
 
+
+## 2026-08-28
+
+Step 24: wrote design-doc 03, GateMate Firmware ROM BRAM and UART Bring-Up Intern Guide (research comparison, inference matrix, corrected 512-byte padded synchronous ROM, primitive INIT validation, post-synth execution, debug LED modes, DirtyJTAG UART/CDC mapping, failure matrix, APIs, commands, decisions).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/03-gatemate-firmware-rom-bram-and-uart-bring-up-intern-guide.md — New intern guide
+
+
+## 2026-08-28
+
+Step 24 publication: validated design-doc 03; dry-ran and bundle-uploaded guide + repository provenance + diary to reMarkable at /ai/2026/08/28/PCA-Z80-GATEMATE. Fixed a XeLaTeX failure caused by literal escaped newlines in a verbatim diary prompt.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/03-gatemate-firmware-rom-bram-and-uart-bring-up-intern-guide.md — Published intern guide
+

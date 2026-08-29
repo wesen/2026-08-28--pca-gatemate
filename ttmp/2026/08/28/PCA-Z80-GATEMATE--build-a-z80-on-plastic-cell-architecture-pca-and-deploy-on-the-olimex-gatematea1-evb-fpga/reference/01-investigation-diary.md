@@ -1482,7 +1482,11 @@ This step replaced an ambiguous "the Z80 does not blink / UART is silent" sympto
 
 ### Prompt Context
 
-**User prompt (verbatim):** "Study how other projects do the ROM / BRAM thing, I'm not sure we do it correctly? https://github.com/PythonLinks/awesome-gatemate\n\nyou can clone projects in ~/code/others/gatemate/ and store downloaded webpage in the sources/ folder of the ticket."
+**User prompt (verbatim):**
+
+> Study how other projects do the ROM / BRAM thing, I'm not sure we do it correctly? https://github.com/PythonLinks/awesome-gatemate
+>
+> you can clone projects in ~/code/others/gatemate/ and store downloaded webpage in the sources/ folder of the ticket.
 
 **User prompt (verbatim):** "Create  a detailed analysis / design / implementation guide that is for a new intern, explaining all the parts of the system needed to understand what it is, with prose paragraphs and bullet point sand pseudocode and diagrams and api references and file references. It should be very clear and technical. Store in the ticket and the nupload to remarkable."
 
@@ -1561,6 +1565,64 @@ The failures composed: the hardware-counter blink passed, the CPU RTL and UART R
 - Physical USB: DirtyJTAG 1209:c0ca; ACM0 interface 01; ACM1 interface 03.
 - Physical UART evidence: `/tmp/acm0-final.bin` = 2 bytes `48 69`; ACM1 = 0.
 - External clones and exact commits are recorded in `sources/gatemate/repository-provenance.md`.
+
+## Step 24: Publish the GateMate ROM/BRAM and UART intern guide
+
+This step converted the Step 23 investigation into design-doc 03, a 28 KB intern-facing implementation and debugging guide. It explains the complete firmware transformation from Z80 assembly through a padded image, registered inferred ROM, GateMate `CC_BRAM_20K` initialization, post-synthesis execution, place-and-route, FPGA UART, RP2040 UART0, and USB CDC0. The document includes direct source comparisons, measured inference results, prose, tables, pseudocode, Mermaid diagrams, API contracts, file references, decision records, a failure-mode matrix, and copy/paste validation commands. It was validated with docmgr and uploaded to reMarkable as a bundle with source provenance and the investigation diary.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 23)
+
+**Assistant interpretation:** Create the detailed technical guide requested after the research and implementation are evidence-backed, store it in the ticket, and publish it to reMarkable.
+
+**Inferred user intent:** Give a new intern enough conceptual, source-level, and operational detail to reproduce the design, understand why it works, and localize future GateMate memory or UART failures without repeating this investigation.
+
+### What I did
+- Created `design-doc/03-gatemate-firmware-rom-bram-and-uart-bring-up-intern-guide.md` (about 28 KB).
+- Covered: purpose/evidence; staged architecture; external comparison projects; Yosys mapper capabilities; controlled inference matrix; memory shape vs contents; production `obj_memio` design; `zasm.py --size` API; artifact/primitive/post-synth verification; debug LED modes; physical UART direction; CDC interface selection; deterministic PnR; recommended implementation sequence; failure matrix; APIs/file map; commands; decision records; working rules.
+- Related the guide to `obj_memio.sv`, `check_gatemate_rom.py`, and the ticket inference-matrix script.
+- Ran `docmgr validate frontmatter` (OK) and `docmgr doctor` (all checks passed).
+- Dry-ran the reMarkable bundle, then uploaded guide + repository provenance + diary to `/ai/2026/08/28/PCA-Z80-GATEMATE/PCA-Z80 GateMate ROM BRAM and UART Guide`.
+
+### Why
+The implementation fix alone does not preserve the distinction between inferred memory geometry, encoded primitive contents, execution semantics, and external transport. The guide makes those boundaries explicit and ties every claim to code, a controlled experiment, generated netlist evidence, or physical output.
+
+### What worked
+- Organizing around stage-specific observables kept the guide technical and continuation-friendly.
+- The inference table and failure-mode table summarize evidence without replacing the prose explanation.
+- `docmgr doctor` verified all related source paths before publication.
+
+### What didn't work
+- The first real reMarkable render failed with XeLaTeX `Undefined control sequence` because Step 23's verbatim prompt stored literal `\\n` characters. Replaced them with actual Markdown blockquote line breaks while preserving the prompt text; the retry uploaded successfully.
+- The first bundle attempt included a `.txt` matrix file; `remarquee upload bundle` accepts Markdown inputs. The guide already embeds the table, so the final bundle uses guide/provenance/diary Markdown files.
+
+### What I learned
+- Verbatim prompt text containing line breaks must use real Markdown line breaks, not escaped `\\n`, when ticket docs are also PDF inputs.
+- A standalone evidence `.txt` remains useful in Git, while publication bundles should cite or reproduce its content in Markdown.
+
+### What was tricky to build
+The guide needed to describe conclusions without hiding corrected assumptions. The final structure explicitly shows why registered reads, capacity, padding, primitive init inspection, and CDC direction are separate concerns. It also records the temporary incorrect combinational-read and UART-pin hypotheses in the diary rather than presenting a falsely linear success narrative.
+
+### What warrants a second pair of eyes
+- Review the 512-byte baseline recommendation against future firmware growth and whether a unified 32-bit RAM becomes preferable.
+- Review the physical UART direction table against future board revisions or alternate RP2040 firmware.
+- Review whether `make post_synth` should become part of default `make test`; it is slower but covers a critical synthesis boundary.
+
+### What should be done in the future
+- Add the forthcoming Obsidian deep-dive article to the vault and cross-link it to project notes if appropriate.
+- Re-upload the guide with `--force` only when substantial corrections justify replacing the current PDF (overwriting removes annotations).
+
+### Code review instructions
+- Start at guide §§2, 5, 6, 9, and 12; then verify commands in §17.
+- Run `docmgr doctor --ticket PCA-Z80-GATEMATE --stale-after 30`.
+- Confirm reMarkable output exists at the reported remote directory.
+
+### Technical details
+- Guide: 28,381 bytes before docmgr relation metadata updates.
+- Publication name: `PCA-Z80 GateMate ROM BRAM and UART Guide`.
+- Remote directory: `/ai/2026/08/28/PCA-Z80-GATEMATE`.
+- Render failure fixed: literal `\\n` in diary prompt → real blockquote line breaks.
 
 ## Related
 
