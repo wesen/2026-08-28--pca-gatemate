@@ -1940,6 +1940,82 @@ The crucial ordering constraint is at the slave endpoint. It must hold the objec
 - One end-to-end transaction in flight; every operation returns `CMD_RESP`.
 - Dynamic pressure placement and physical LUT relocation remain outside scope.
 
+## Step 30: Implement the deterministic static logical placer
+
+Continuation P3 implemented the contract from design-doc 05 as a standard-library Python tool, strict versioned input, canonical JSON output, generated SystemVerilog constants, Makefile dependency, stale-artifact check, and 21-test suite. The six-object star now receives a deterministic placement on the existing 3×3 PCA mesh with weighted hop cost 8 and maximum path length 2. The direct-bus processor and all prior verification remain green.
+
+The phase deliberately stops before mesh transport RTL. P3 proves that object identities, coordinates, cell ids, exact XY review paths, hashes, and generated compile-time constants are reproducible and reject malformed graphs. P4 can therefore consume a fixed machine-checked artifact rather than embed coordinate literals.
+
+### Prompt Context
+
+**User prompt (verbatim):**
+
+> continue, commit at appropriate intervals and keep a detailed diary as you work (using the diary format from the skill) . Print out a brutalist work slip with the plan / different phases for the ticket. then before stsarting a phase, plrint a split about the phase, and print one when the phase is done.
+
+**Assistant interpretation:** Continue with P3 using the established plan, print before and after the phase, implement in reviewable increments, preserve exact failures in the diary, and commit coherent implementation and bookkeeping checkpoints.
+
+**Inferred user intent:** Make measurable implementation progress while retaining a physical and repository-level audit trail that another engineer can resume.
+
+**Commit (code):** 921fabc — "Implement deterministic PCA static placer"
+
+### What I did
+- Printed `P3 START — Build Static Placer` before modifying implementation files.
+- Added `pca_z80/config/z80_objects.json`, the canonical six-object 3×3 star input.
+- Added `tools/placer.py` with strict recursive field validation, schema/version checks, capacity and identity checks, fixed-coordinate support, deterministic weighted greedy placement, exact X-then-Y paths, metrics, and output validation.
+- Canonicalized object and edge ordering so reordered valid input emits byte-identical JSON/SV and the same canonical input SHA-256.
+- Added atomic output writes and non-mutating exact-byte `--check` mode.
+- Generated scalar per-object SystemVerilog constants with a source hash and `DO NOT EDIT` marker.
+- Added `sim/test_placer.py` with 21 tests covering deterministic output, reordered arrays, fixed placement, 1×1 placement, exact XY paths, strict rejection vectors, capacity, fixed collisions, atomic CLI behavior, stale checks, no output on rejected input, and generated-SV compilation.
+- Added `placement`, `check_placement`, and `test_placer` Make targets; included placer tests in `make test` and generated SV in `clean`.
+- Updated design-doc 05 to record the Icarus-supported scalar package interface.
+- Ran `python3 -m py_compile`, `git diff --check`, generation, stale checking, and the full regression.
+
+### Why
+P4 mesh adapters require one source of truth for endpoint coordinates. A deterministic generated artifact prevents test, RTL, and documentation coordinates from drifting and separates placement errors from packet-transport errors.
+
+### What worked
+- `python3 -m pytest sim/test_placer.py -q` passes 21 tests in 0.27 seconds.
+- `make placement` reports `PASS: placed 6 objects; weighted_hops=8; max_hops=2`.
+- `make check_placement` reports both generated artifacts current: 2,140 JSON bytes and 1,020 SV bytes.
+- `make test` passes mesh routing/anti-double, object graph, 49 model tests, 22 assembler tests, 6 integration tests, and 21 placer tests.
+- Generated scalar constants compile under OSS CAD Suite Icarus.
+
+### What didn't work
+- The first standalone package probe omitted the toolchain environment. Command: `iverilog -g2012 -o /tmp/test_pkg.vvp /tmp/test_pkg.sv && vvp /tmp/test_pkg.vvp`. Exact error: `/bin/bash: line 41: iverilog: command not found`. Fixed by running `source ~/fpga/oss-cad-suite/environment` first.
+- The contracted unpacked-array package syntax is unsupported by Icarus 14. Command: `source ~/fpga/oss-cad-suite/environment && iverilog -g2012 -o /tmp/test_pkg.vvp /tmp/test_pkg.sv && vvp /tmp/test_pkg.vvp`. Exact error: `/tmp/test_pkg.sv:2: sorry: unpacked array parameters are not supported yet.` The contract's allowed fallback was activated: one scalar X, Y, and cell constant per object.
+- The first placer test run had one incorrect hand expectation. Command: `python3 -m pytest sim/test_placer.py -q`. It reported `1 failed, 20 passed` because the test expected `weighted_hops=9` and `max_hops=3`; the actual deterministic placement correctly produced 8 and 2. Inspecting coordinates showed the greedy algorithm selected cells with distances 1, 1, 2, 2, 2 from decode. The expected hand calculation was corrected; no algorithm change was needed.
+
+### What I learned
+- Canonical input hashing must hash the validated sorted model rather than raw source bytes; otherwise harmless input array reordering changes the output hash and defeats byte stability.
+- The six-node star does not need a central decode pin to keep routes short: row-major decode at (0,0) plus weighted nearest-free placement yields maximum two hops on 3×3.
+- Tool support must be tested before generated SystemVerilog syntax is treated as a stable API.
+
+### What was tricky to build
+Determinism spans more than the placement loop. Input object/edge order, JSON key order, trailing newline, route order, tie-breaking, hash source, generated constant order, and write behavior all had to be fixed. The tool validates and sorts first, hashes that canonical model, uses `(cost, y, x)` candidate ordering, sorts output by object id, and renders exact UTF-8 bytes. `--check` regenerates only in memory and compares those bytes without touching files.
+
+Strict failure behavior also required rejecting booleans as integers, nested unknown fields, invalid references, duplicate directed edges, fixed-cell collisions, unsupported footprints, and capacity errors with field-qualified messages. Invalid inputs are fully validated before either output path is opened.
+
+### What warrants a second pair of eyes
+- Review whether row-major placement of the highest-degree first object at (0,0) is desirable long-term; it is deterministic and cheap but not globally optimal for arbitrary graphs.
+- Review whether two output files should use a transactional directory swap if future failure modes require all-or-nothing replacement across both files. Current invalid-input failures produce neither file; OS failure during the second atomic replacement could leave a mixed pair, which `--check` detects.
+- Confirm P4 should import scalar constants directly or wrap them in an object-id coordinate function.
+
+### What should be done in the future
+- P4 should add a small coordinate lookup function around generated scalar constants rather than duplicate case mappings across adapters.
+- A future optimizer may be added behind a new schema/strategy field; it must not change v1 output silently.
+
+### Code review instructions
+- Start at `tools/placer.py::validate_input`, `place`, `render_sv`, and `main`.
+- Review `sim/test_placer.py` rejection and CLI tests against design-doc 05 §§12–14.
+- Run `source ~/fpga/oss-cad-suite/environment && make placement check_placement test_placer test` from `pca_z80/`.
+- Delete or alter `build/pca_placement_pkg.sv` and verify `make check_placement` fails without rewriting it.
+
+### Technical details
+- Placement: decode cell 0; PC cell 1; MEM cell 3; REG cell 2; ALU cell 4; FLAGS cell 6.
+- Canonical input hash: `92d484bf2e9f566c6500fc7dc838cb7bf773a58c5eeb43ecd9750e9f2bca7241`.
+- Metrics: six objects, six occupied cells, weighted hops 8, max hops 2.
+- Generated artifacts remain under ignored `build/`; canonical input and generator are committed.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

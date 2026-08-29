@@ -266,3 +266,12 @@ Step 29 / continuation P2: froze deterministic static placer schemas, generated 
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/05-static-placer-and-mesh-transport-contract.md — Normative contract for continuation P3 and P4
 
+
+## 2026-08-28
+
+Step 30 / continuation P3: implemented deterministic strict-schema static placer, canonical JSON + Icarus-compatible scalar SV generation, atomic writes, stale check, Make integration, and 21 tests; all prior regressions pass (code commit 921fabc).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/placer.py — Continuation P3 implementation
+
