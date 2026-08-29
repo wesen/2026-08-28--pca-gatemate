@@ -41,7 +41,7 @@ module tb_hello;
     initial begin
         $dumpfile("build/hello.vcd");
         $dumpvars(0, tb_hello);
-        $readmemh("build/hello.hex", dut.u_core.u_memio.rom);
+        $readmemh("build/hello.hex", dut.g_direct.u_core.u_memio.rom);
         repeat(20) @(posedge clk_10m);   // past CC_USR_RSTN + reset_sync
         fork
             begin : rx_mon

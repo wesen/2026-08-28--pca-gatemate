@@ -2,7 +2,7 @@
   "schema": "pca-placement-input/v1",
   "mesh": {
     "cols": 3,
-    "rows": 3
+    "rows": 2
   },
   "objects": [
     {"id": 0, "name": "decode", "footprint": {"w": 1, "h": 1}},

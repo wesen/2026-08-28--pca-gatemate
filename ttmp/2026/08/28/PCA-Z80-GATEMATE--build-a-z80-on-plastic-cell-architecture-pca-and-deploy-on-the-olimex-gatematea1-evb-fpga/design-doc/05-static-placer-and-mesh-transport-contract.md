@@ -18,7 +18,7 @@ RelatedFiles:
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/pca_router.sv
       Note: Existing single-packet held-request forwarding and local priority behavior
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/pca_types.sv
-      Note: Existing 67-bit packet and deterministic XY route contract
+      Note: Static 43-bit packet (2-bit coordinates) and deterministic XY route contract
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/z80_core.sv
       Note: Proven direct-bus reference behavior and six-object topology
     - Path: /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/rtl/z80_obj.sv
@@ -67,8 +67,10 @@ this contract.
 
 The contract follows five existing constraints:
 
-1. `pca_types::msg_t` is 67 bits: command, destination coordinate, source
-   coordinate, 16-bit address, and 16-bit data.
+1. `pca_types::msg_t` is 43 bits: command, four 2-bit coordinates, 16-bit
+   address, and 16-bit data. P5 narrowed coordinates from 8 to 2 bits after
+   controlled 67-bit routing attempts failed to converge; this supports meshes
+   through 4×4 and preserves all packet semantics used here.
 2. `pca_router` allows one packet per router, uses fixed local-first input
    priority, and holds each forwarded request until acknowledgement.
 3. `pca_mesh` exposes one bidirectional local endpoint per cell, with cell id
@@ -137,7 +139,7 @@ The file name SHOULD be `config/z80_objects.json`.
 ```json
 {
   "schema": "pca-placement-input/v1",
-  "mesh": {"cols": 3, "rows": 3},
+  "mesh": {"cols": 3, "rows": 2},
   "objects": [
     {"id": 0, "name": "decode", "footprint": {"w": 1, "h": 1}},
     {"id": 1, "name": "pc",     "footprint": {"w": 1, "h": 1}},
@@ -185,7 +187,7 @@ one trailing newline.
 {
   "schema": "pca-placement/v1",
   "input_sha256": "<64 lowercase hex characters>",
-  "mesh": {"cols": 3, "rows": 3},
+  "mesh": {"cols": 3, "rows": 2},
   "placements": [
     {"id": 0, "name": "decode", "x": 1, "y": 0, "cell_id": 1}
   ],
@@ -382,8 +384,10 @@ injection, target wait, response injection, and source ack.
 
 The graph contains decode and five slaves. P3 computes the exact placement;
 P4 MUST consume generated coordinates rather than repeat numeric literals.
-A 3×3 mesh is the baseline because it already passes router tests and leaves
-three spare endpoints for probes or future adapters.
+The canonical physical topology is 3×2: exactly six endpoints for six objects.
+P4 began at 3×3, but P5 measured severe GateMate routing congestion from three
+unused full-width routers. The 3×2 topology preserves all endpoint behavior;
+spare probes require a future size increase.
 
 Only decode initiates object operations in this phase. Slave-to-slave edges are
 not required. The transport design nevertheless uses request source fields and
@@ -463,7 +467,7 @@ with object acceptance during adapter evolution.
 ### Add a transaction id immediately
 
 Rejected because decode permits one request in flight and `msg_t` has no spare
-field without changing the proven 67-bit router contract. Source coordinate,
+field without adding a field to the packet contract. Source coordinate,
 command, and echoed address are sufficient for this scope.
 
 ### Emit only a SystemVerilog include

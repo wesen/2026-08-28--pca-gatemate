@@ -25,13 +25,17 @@ RTL_SYNTH := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
 SIM_SRCS  := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv \
              $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_top.sv
 
-# Phase 6: the full Z80 object-graph top (board-facing).
-Z80_TOP_RTL := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv \
+# Board-facing direct and generated-placement mesh cores. Yosys prunes the
+# unselected generate branch through the top-level MESH_MODE parameter.
+Z80_TOP_RTL := $(PLACEMENT_SV) $(RTL_DIR)/pca_types.sv $(RTL_DIR)/z80_obj.sv \
+             $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cell.sv $(RTL_DIR)/pca_mesh.sv \
+             $(RTL_DIR)/z80_mesh_adapter.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv \
              $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv \
-             $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv \
-             $(RTL_DIR)/uart_tx.sv $(RTL_DIR)/top.sv
+             $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/z80_mesh_core.sv \
+             $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/uart_tx.sv $(RTL_DIR)/top.sv
 PROG ?= blink
 ROM_DEPTH ?= 512
+MESH_MODE ?= 0
 DEBUG_LED_MODE ?= 0
 PNR_SEED ?= 1
 
@@ -40,14 +44,14 @@ PCA_RTL   := $(RTL_DIR)/pca_types.sv $(RTL_DIR)/pca_router.sv $(RTL_DIR)/pca_cel
 SIM_MESH_SRCS := $(PCA_RTL) $(SIM_DIR)/tb_pca_mesh.sv
 
 # Phase 6: board top (z80_core + reset_sync + uart_tx + top) for hello sim.
-TOP_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/uart_tx.sv $(RTL_DIR)/top.sv
+TOP_RTL   := $(Z80_TOP_RTL)
 SIM_HELLO_SRCS := $(TOP_RTL) $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_hello.sv
 
 # Phase 3: the Z80 object graph (bus contract + objects + core) + testbench.
 Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
 SIM_CORE_SRCS := $(Z80_RTL) $(SIM_DIR)/tb_z80_core.sv
 
-.PHONY: all versions test sim synth pnr bit load clean placement check_placement test_placer test_mesh_integ
+.PHONY: all versions test sim synth pnr bit load clean placement check_placement test_placer test_mesh_integ sim_mesh_hello
 all: sim bit
 
 # Record exact tool versions (sibling §1.4 / Exercise 1.1): never "latest".
@@ -110,11 +114,18 @@ test_mesh_integ: placement
 
 # Phase 6 UART bring-up sim (Z80 emits 'Hi' over the memory-mapped UART).
 .PHONY: sim_hello
-sim_hello:
+sim_hello: placement
 	@mkdir -p $(BUILD)
 	python3 tools/zasm.py programs/hello.asm -o $(BUILD) -n hello
 	iverilog -g2012 -s tb_hello -o $(BUILD)/hello.vvp $(SIM_HELLO_SRCS)
 	vvp $(BUILD)/hello.vvp | tee $(BUILD)/hello_sim.log
+
+sim_mesh_hello: placement
+	@mkdir -p $(BUILD)
+	python3 tools/zasm.py programs/hello.asm -o $(BUILD) -n hello
+	iverilog -g2012 -s tb_mesh_hello -o $(BUILD)/mesh_hello.vvp $(TOP_RTL) \
+	  $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_mesh_hello.sv
+	vvp $(BUILD)/mesh_hello.vvp | tee $(BUILD)/mesh_hello_sim.log
 
 # Phase 1 substrate simulation.
 .PHONY: sim_mesh
@@ -136,10 +147,10 @@ sim:
 
 # Synthesis (sibling §1.8): Yosys synth_gatemate with -luttree -nomx8.
 # Phase 6: synthesize the Z80 top with the assembled program ROM.
-synth:
+synth: placement
 	@mkdir -p $(BUILD)
 	python3 tools/zasm.py programs/$(PROG).asm -o $(BUILD) -n top_prog --size $(ROM_DEPTH)
-	yosys -ql $(BUILD)/yosys.log -p 'read_verilog -defer -sv -DROM_FILE="$(BUILD)/top_prog.hex" $(Z80_TOP_RTL); chparam -set ROM_DEPTH $(ROM_DEPTH) -set DEBUG_LED_MODE $(DEBUG_LED_MODE) top; synth_gatemate -top top -luttree -nomx8; stat; write_json $(BUILD)/top.json;'
+	yosys -ql $(BUILD)/yosys.log -p 'read_verilog -defer -sv -DROM_FILE="$(BUILD)/top_prog.hex" $(Z80_TOP_RTL); chparam -set ROM_DEPTH $(ROM_DEPTH) -set MESH_MODE $(MESH_MODE) -set DEBUG_LED_MODE $(DEBUG_LED_MODE) top; synth_gatemate -top top -luttree -nomx8; stat; write_json $(BUILD)/top.json;'
 
 # Gate-level firmware smoke test: proves BRAM init survives synth_gatemate.
 .PHONY: post_synth

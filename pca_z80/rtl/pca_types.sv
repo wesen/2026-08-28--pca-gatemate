@@ -32,25 +32,30 @@ package pca_types;
     CMD_RESP   = 3'd4    // response packet carrying read data back to src
   } cmd_e;
 
+  // Static hardware supports meshes through 4x4. Two-bit coordinates avoid
+  // switching 24 unused coordinate bits through every physical router.
+  localparam int COORD_W = 2;
+
   // A single-flit packet. Stable while req is held (held-request contract).
-  // Width = 3 + 8*4 + 16*2 = 67 bits.
+  // Width = 3 + COORD_W*4 + 16*2 = 43 bits.
   typedef struct packed {
     cmd_e      cmd;
-    logic [7:0] dest_x;
-    logic [7:0] dest_y;
-    logic [7:0] src_x;
-    logic [7:0] src_y;
+    logic [COORD_W-1:0] dest_x;
+    logic [COORD_W-1:0] dest_y;
+    logic [COORD_W-1:0] src_x;
+    logic [COORD_W-1:0] src_y;
     logic [15:0] addr;
     logic [15:0] data;
   } msg_t;
 
   // Packed width of msg_t (for packed 2D port arrays — iverilog-safe).
-  localparam int PKT_W = 67;
+  localparam int PKT_W = 3 + 4*COORD_W + 2*16;  // Yosys cannot parse $bits(msg_t) here.
 
   // Deterministic XY routing (paper: exact, not adaptive; deadlock-free on a
   // 2D mesh). Resolve X (East/West) first, then Y (North/South), else Local.
   // Convention: X = column increasing East; Y = row increasing South.
-  function automatic dir_e xy_route(input logic [7:0] dx, input logic [7:0] dy,
+  function automatic dir_e xy_route(input logic [COORD_W-1:0] dx,
+                                    input logic [COORD_W-1:0] dy,
                                     input logic [7:0] mx, input logic [7:0] my);
     if      (dx > mx) xy_route = DIR_E;
     else if (dx < mx) xy_route = DIR_W;

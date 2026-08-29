@@ -11,6 +11,8 @@
 
 module top #(
     parameter int ROM_DEPTH = 512,
+    // 0: proven direct object bus; 1: generated placement + PCA mesh transport.
+    parameter int MESH_MODE = 0,
     // 0: program GPIO, 1: retired-instruction heartbeat, 2: sticky UART start.
     // Diagnostic only; production builds leave this at 0.
     parameter int DEBUG_LED_MODE = 0
@@ -30,6 +32,8 @@ module top #(
     logic [7:0]  uart_byte;
     logic        uart_start, uart_ready;
     logic        uart_seen;
+    logic        mesh_protocol_error;
+    logic [31:0] mesh_request_count, mesh_response_count, mesh_accept_count;
 
     // GateMate configuration-reset primitive (real in synth, modeled in sim).
     CC_USR_RSTN u_cfg_reset (.USR_RSTN(cfg_rst_n));
@@ -40,21 +44,31 @@ module top #(
         .rst_n  (rst_n)
     );
 
-    z80_core #(.ROM_DEPTH(ROM_DEPTH)) u_core (
-        .clk        (clk_10m),
-        .rst_n      (rst_n),
-        .dbg_ir     (dbg_ir),
-        .dbg_pc     (dbg_pc),
-        .dbg_r      (dbg_r),
-        .dbg_sp     (dbg_sp),
-        .gpio_out   (gpio),
-        .uart_tx_data (uart_byte),
-        .uart_tx_start(uart_start),
-        .uart_tx_ready (uart_ready),
-        .dbg_count  (dbg_count),
-        .dbg_halted (dbg_halted),
-        .dbg_faulted(dbg_faulted)
-    );
+    generate
+        if (MESH_MODE == 1) begin : g_mesh
+            z80_mesh_core #(.ROM_DEPTH(ROM_DEPTH)) u_core (
+                .clk(clk_10m), .rst_n,
+                .dbg_ir, .dbg_pc, .dbg_r, .dbg_sp,
+                .gpio_out(gpio), .uart_tx_data(uart_byte),
+                .uart_tx_start(uart_start), .uart_tx_ready(uart_ready),
+                .dbg_count, .dbg_halted, .dbg_faulted,
+                .mesh_protocol_error, .mesh_request_count,
+                .mesh_response_count, .mesh_accept_count
+            );
+        end else begin : g_direct
+            z80_core #(.ROM_DEPTH(ROM_DEPTH)) u_core (
+                .clk(clk_10m), .rst_n,
+                .dbg_ir, .dbg_pc, .dbg_r, .dbg_sp,
+                .gpio_out(gpio), .uart_tx_data(uart_byte),
+                .uart_tx_start(uart_start), .uart_tx_ready(uart_ready),
+                .dbg_count, .dbg_halted, .dbg_faulted
+            );
+            assign mesh_protocol_error = 1'b0;
+            assign mesh_request_count = 32'd0;
+            assign mesh_response_count = 32'd0;
+            assign mesh_accept_count = 32'd0;
+        end
+    endgenerate
 
     // UART transmitter (8-N-1, 115200 baud at 10 MHz). The Z80 writes a byte
     // to memory address 0x0001 to transmit it (memory-mapped I/O).
