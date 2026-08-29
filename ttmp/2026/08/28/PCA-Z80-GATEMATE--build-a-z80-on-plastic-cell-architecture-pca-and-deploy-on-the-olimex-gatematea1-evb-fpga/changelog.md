@@ -275,3 +275,12 @@ Step 30 / continuation P3: implemented deterministic strict-schema static placer
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/pca_z80/tools/placer.py — Continuation P3 implementation
 
+
+## 2026-08-28
+
+Step 31: updated engineering report after P3 to record deterministic static placement, 21 tests, generated artifacts, and the remaining P4 transport versus Phase 7 dynamic-placement boundary.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/02-pca-z80-engineering-report.md — P3 report checkpoint
+

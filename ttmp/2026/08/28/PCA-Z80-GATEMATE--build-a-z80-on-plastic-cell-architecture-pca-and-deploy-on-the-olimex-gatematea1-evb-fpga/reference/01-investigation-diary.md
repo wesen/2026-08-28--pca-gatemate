@@ -2016,6 +2016,53 @@ Strict failure behavior also required rejecting booleans as integers, nested unk
 - Metrics: six objects, six occupied cells, weighted hops 8, max hops 2.
 - Generated artifacts remain under ignored `build/`; canonical input and generator are committed.
 
+## Step 31: Update the engineering report after static placement
+
+The engineering report was audited before P4 and still described both static placement and mesh integration as pending Phase 7 work. It now records the completed deterministic static placer, its 21 tests and route metrics, and the precise remaining boundary: continuation P4 adds mesh transport; runtime pressure-based movement remains a separate Phase 7 extension.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Update the project report if necessary. Then build P4."
+
+**Assistant interpretation:** Bring the main report up to the P3 checkpoint before implementing and validating mesh-backed object transport in P4.
+
+**Inferred user intent:** Keep the handoff report synchronized at phase boundaries and then continue implementation without carrying stale architecture claims.
+
+### What I did
+- Updated engineering-report architecture status with generated static placement.
+- Added the 21-test placer layer to the verification table.
+- Updated limitation 5 to distinguish completed placement from pending transport.
+- Added `make placement check_placement` to reproducibility.
+- Updated the conclusion's static, mesh-transport, and dynamic-placement boundaries.
+
+### Why
+The report must not imply that `placer.py` remains absent or that static placement and runtime dynamic placement are the same phase.
+
+### What worked
+- Targeted `placer|mesh|Phase 5|Phase 7` search found every stale claim.
+
+### What didn't work
+- N/A
+
+### What I learned
+- Reporting static placement, transport integration, and dynamic relocation as three separate capabilities prevents architecture overclaims.
+
+### What was tricky to build
+The update had to preserve the proven direct-bus hardware statement while acknowledging that generated coordinates are real and tested but not yet consumed by transport RTL.
+
+### What warrants a second pair of eyes
+- Revisit resources and timing only after P5 synthesizes the mesh-backed core.
+
+### What should be done in the future
+- Update this report again after P4 only if mesh-backed execution passes its phase gate.
+
+### Code review instructions
+- Review engineering-report §§2.1, 4, 7, 8, and 10.
+- Validate with `docmgr doctor --ticket PCA-Z80-GATEMATE --stale-after 30`.
+
+### Technical details
+- Placer metrics: 21 tests, weighted hops 8, maximum route 2.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
