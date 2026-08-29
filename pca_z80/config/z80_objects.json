@@ -1,0 +1,22 @@
+{
+  "schema": "pca-placement-input/v1",
+  "mesh": {
+    "cols": 3,
+    "rows": 3
+  },
+  "objects": [
+    {"id": 0, "name": "decode", "footprint": {"w": 1, "h": 1}},
+    {"id": 1, "name": "pc", "footprint": {"w": 1, "h": 1}},
+    {"id": 2, "name": "mem", "footprint": {"w": 1, "h": 1}},
+    {"id": 3, "name": "reg", "footprint": {"w": 1, "h": 1}},
+    {"id": 4, "name": "alu", "footprint": {"w": 1, "h": 1}},
+    {"id": 5, "name": "flags", "footprint": {"w": 1, "h": 1}}
+  ],
+  "edges": [
+    {"src": 0, "dst": 1, "weight": 1},
+    {"src": 0, "dst": 2, "weight": 1},
+    {"src": 0, "dst": 3, "weight": 1},
+    {"src": 0, "dst": 4, "weight": 1},
+    {"src": 0, "dst": 5, "weight": 1}
+  ]
+}

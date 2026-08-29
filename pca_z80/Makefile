@@ -16,6 +16,9 @@ RTL_DIR  := rtl
 SIM_DIR  := sim
 BUILD    := build
 YOSYS_DATDIR := $(shell yosys-config --datdir 2>/dev/null)
+PLACEMENT_INPUT := config/z80_objects.json
+PLACEMENT_JSON  := $(BUILD)/placement.json
+PLACEMENT_SV    := $(BUILD)/pca_placement_pkg.sv
 
 # Phase 0: just reset_sync + a minimal top that proves the flow.
 RTL_SYNTH := $(RTL_DIR)/reset_sync.sv $(RTL_DIR)/top.sv
@@ -44,7 +47,7 @@ SIM_HELLO_SRCS := $(TOP_RTL) $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_hello.sv
 Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
 SIM_CORE_SRCS := $(Z80_RTL) $(SIM_DIR)/tb_z80_core.sv
 
-.PHONY: all versions test sim synth pnr bit load clean
+.PHONY: all versions test sim synth pnr bit load clean placement check_placement test_placer
 all: sim bit
 
 # Record exact tool versions (sibling §1.4 / Exercise 1.1): never "latest".
@@ -64,7 +67,7 @@ versions:
 
 # Pure-software unit tests (Phase 2+4): model + ISA + assembler. Phase 1+3: substrate + object-graph sim.
 .PHONY: test
-test: sim_mesh sim_core test_model test_assembler test_integ
+test: sim_mesh sim_core test_model test_assembler test_integ test_placer
 
 # Phase 3 object-graph simulation (directed differential vs the oracle).
 .PHONY: sim_core
@@ -87,6 +90,19 @@ test_assembler:
 .PHONY: test_integ
 test_integ:
 	python3 -m pytest sim/test_integ.py -q
+
+# Continuation P3: deterministic static logical placement + generated artifacts.
+$(PLACEMENT_JSON) $(PLACEMENT_SV) &: $(PLACEMENT_INPUT) tools/placer.py
+	@mkdir -p $(BUILD)
+	python3 tools/placer.py --input $(PLACEMENT_INPUT) --json $(PLACEMENT_JSON) --sv $(PLACEMENT_SV)
+
+placement: $(PLACEMENT_JSON) $(PLACEMENT_SV)
+
+check_placement:
+	python3 tools/placer.py --input $(PLACEMENT_INPUT) --json $(PLACEMENT_JSON) --sv $(PLACEMENT_SV) --check
+
+test_placer:
+	python3 -m pytest sim/test_placer.py -q
 
 # Phase 6 UART bring-up sim (Z80 emits 'Hi' over the memory-mapped UART).
 .PHONY: sim_hello
@@ -148,4 +164,4 @@ load: bit
 	openFPGALoader -b $(BOARD) $(BUILD)/top.bit
 
 clean:
-	rm -f $(BUILD)/*.json $(BUILD)/*.txt $(BUILD)/*.bit $(BUILD)/*.vcd $(BUILD)/*.log $(BUILD)/*.vvp
+	rm -f $(BUILD)/*.json $(BUILD)/*.txt $(BUILD)/*.bit $(BUILD)/*.vcd $(BUILD)/*.log $(BUILD)/*.vvp $(PLACEMENT_SV)

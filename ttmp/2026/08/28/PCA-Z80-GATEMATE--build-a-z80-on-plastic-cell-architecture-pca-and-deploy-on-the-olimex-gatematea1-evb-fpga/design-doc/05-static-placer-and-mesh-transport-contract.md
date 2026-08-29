@@ -202,21 +202,30 @@ one trailing newline.
 
 ## 6. Generated SystemVerilog package
 
-Default output SHOULD be `build/pca_placement_pkg.sv` and MUST define:
+Default output is `build/pca_placement_pkg.sv`. P3 tested unpacked parameter
+arrays against OSS CAD Suite Icarus 14, which reports:
+
+```text
+/tmp/test_pkg.sv:2: sorry: unpacked array parameters are not supported yet.
+```
+
+The implemented fallback is therefore one scalar coordinate and cell constant
+per object:
 
 ```systemverilog
 package pca_placement_pkg;
   localparam int PCA_COLS = 3;
   localparam int PCA_ROWS = 3;
-  localparam logic [7:0] OBJ_X [0:5] = '{...};
-  localparam logic [7:0] OBJ_Y [0:5] = '{...};
-  localparam int OBJ_CELL [0:5] = '{...};
+  localparam int PCA_OBJECTS = 6;
+  localparam logic [7:0] OBJ_DECODE_X = 8'd0;
+  localparam logic [7:0] OBJ_DECODE_Y = 8'd0;
+  localparam int OBJ_DECODE_CELL = 0;
+  // OBJ_PC_*, OBJ_MEM_*, OBJ_REG_*, OBJ_ALU_*, OBJ_FLAGS_*
 endpackage
 ```
 
-If unpacked parameter arrays prove unsupported by Icarus or Yosys, P3 MAY emit
-one scalar constant per object instead. The package interface must then be
-recorded in this document before P4. Generated code MUST NOT be hand-edited.
+A compile smoke test guards this package in `sim/test_placer.py`. Generated
+code MUST NOT be hand-edited.
 
 ## 7. Packet encoding
 
