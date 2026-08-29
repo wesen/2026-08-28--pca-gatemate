@@ -259,7 +259,13 @@ RTL this is a fault/assertion path, not coordinate zero fallback.
 | `dest_x/y` | request `src_x/y` |
 | `src_x/y` | target endpoint coordinate |
 | `addr` | request `addr`, echoed |
-| `data` | slave `rdata` for reads; zero for writes |
+| `data` | slave `bus_resp.rdata` for every operation |
+
+`we` describes how the request presents operands or mutation intent; it does
+not guarantee response data is irrelevant. In particular, ALU operations use
+write-like requests carrying operands and return `{flags,result}`. Ordinary
+memory/register writes naturally return zero under their existing object
+contracts.
 
 The decode adapter accepts a response only when command, destination, source,
 and echoed address match the outstanding request. Unexpected packets MUST NOT

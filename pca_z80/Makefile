@@ -47,7 +47,7 @@ SIM_HELLO_SRCS := $(TOP_RTL) $(SIM_DIR)/CC_USR_RSTN.sv $(SIM_DIR)/tb_hello.sv
 Z80_RTL   := $(RTL_DIR)/z80_obj.sv $(RTL_DIR)/obj_pc.sv $(RTL_DIR)/obj_memio.sv $(RTL_DIR)/obj_regfile.sv $(RTL_DIR)/obj_alu.sv $(RTL_DIR)/obj_flags.sv $(RTL_DIR)/obj_decode.sv $(RTL_DIR)/z80_core.sv
 SIM_CORE_SRCS := $(Z80_RTL) $(SIM_DIR)/tb_z80_core.sv
 
-.PHONY: all versions test sim synth pnr bit load clean placement check_placement test_placer
+.PHONY: all versions test sim synth pnr bit load clean placement check_placement test_placer test_mesh_integ
 all: sim bit
 
 # Record exact tool versions (sibling §1.4 / Exercise 1.1): never "latest".
@@ -67,7 +67,7 @@ versions:
 
 # Pure-software unit tests (Phase 2+4): model + ISA + assembler. Phase 1+3: substrate + object-graph sim.
 .PHONY: test
-test: sim_mesh sim_core test_model test_assembler test_integ test_placer
+test: sim_mesh sim_core test_model test_assembler test_integ test_placer test_mesh_integ
 
 # Phase 3 object-graph simulation (directed differential vs the oracle).
 .PHONY: sim_core
@@ -103,6 +103,10 @@ check_placement:
 
 test_placer:
 	python3 -m pytest sim/test_placer.py -q
+
+# Continuation P4: assembled programs traverse generated endpoints and PCA routers.
+test_mesh_integ: placement
+	python3 -m pytest sim/test_mesh_integ.py -q
 
 # Phase 6 UART bring-up sim (Z80 emits 'Hi' over the memory-mapped UART).
 .PHONY: sim_hello
