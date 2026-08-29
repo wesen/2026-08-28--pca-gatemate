@@ -1869,6 +1869,77 @@ The existing repository had two valid but different phase vocabularies: the orig
 - Continuation P1 maps to baseline audit; P2–P4 map to original Phase 5; P5 re-runs Phase 6 acceptance; P6 is publication/handoff.
 - Original Phase 7 runtime pressure placement remains outside the static integration sequence.
 
+## Step 29: Freeze the static placer and mesh transport contract
+
+This step completed continuation P2 before any placer or mesh-adapter implementation began. The contract derives its schemas and handshake rules from the current 67-bit PCA packet, single-packet router, row-major mesh endpoint indexing, 38-bit object request, 17-bit response, and decode's one-transaction behavior. It defines deterministic logical placement, canonical generated artifacts, packet encoding, endpoint state machines, reset/backpressure/anti-double invariants, and explicit acceptance/rejection vectors for P3 and P4.
+
+A separate brutalist explainer slip was printed at the user's request. It summarizes the core distinction: placement assigns fixed logical coordinates; transport converts held object-bus operations into routed request/response packets; router delivery acknowledgement is not architectural CPU acknowledgement; runtime movement is not part of this static contract.
+
+### Prompt Context
+
+**User prompt (verbatim):** (continuation workflow prompt: see Step 28)
+
+**User prompt (verbatim):** "write a brutalist almanach printout that explains what the static placer mesh transport contract are about. Short for printout but still fleshed out so i can understand it."
+
+**Assistant interpretation:** Before implementation, specify every observable static placer and mesh transport behavior, and print a concise standalone explanation of the contract.
+
+**Inferred user intent:** Understand and physically retain the conceptual boundary being implemented, while ensuring future code can be reviewed against an explicit design rather than inferred behavior.
+
+### What I did
+- Printed the P2 start slip before contract work.
+- Read `pca_types.sv`, `pca_router.sv`, `pca_mesh.sv`, `z80_obj.sv`, and `z80_core.sv` completely.
+- Created design-doc 05, `Static Placer and Mesh Transport Contract`.
+- Defined a strict versioned JSON input schema for mesh dimensions, six objects, 1×1 footprints, optional fixed coordinates, and weighted communication edges.
+- Defined canonical stable JSON output with placement coordinates, row-major cell ids, exact XY paths, metrics, and source SHA-256.
+- Defined a generated SystemVerilog placement package derived from the same validated in-memory placement.
+- Selected deterministic weighted greedy placement with explicit ordering and row-major tie-breakers.
+- Mapped `bus_req_t` reads/writes to `CMD_READ`/`CMD_WRITE`; both return `CMD_RESP` so architectural completion never depends on router delivery acknowledgement.
+- Specified decode/master and slave endpoint state machines, including complete held-request, reset, backpressure, and anti-double behavior.
+- Defined response validation using command, source/destination, and echoed address under the one-in-flight invariant.
+- Defined P3 valid and rejection vectors and P4 directed transport/integration vectors.
+- Printed the explainer slip `Static Placer + Mesh Transport` with facts `PLACER=LOGICAL`, `MESH=3x3`, and `PACKET=67 BIT`.
+
+### Why
+The current direct bus and mesh each have correct held-request semantics, but their acknowledgements have different meanings. A design contract is required before adapters are written so network delivery cannot be mistaken for completed object execution and a stalled request cannot duplicate memory, GPIO, or UART side effects.
+
+### What worked
+- Existing RTL supports a conservative mapping without changing the 67-bit packet: one outstanding request allows source coordinates plus echoed address to correlate responses.
+- Exact XY routing eliminates runtime route-table configuration from the first integration.
+- Uniform response packets give reads and writes one architectural completion rule.
+- The explainer slip printed successfully in two printer segments.
+
+### What didn't work
+- No implementation was attempted in this contract-only phase.
+- The current `msg_t` has no transaction id or status field. Rather than overload fields, the contract explicitly restricts the baseline to one transaction in flight and validates response metadata.
+
+### What I learned
+- `pca_router` acknowledgement is end-to-end delivery acknowledgement through the router chain, but it still cannot serve as `bus_resp.ack`: target object execution must be complete and a response must return to preserve one uniform architectural contract.
+- `pca_mesh` already exposes exactly the local endpoint shape required for logical placement; no programmable next-hop table is needed for static XY routing.
+
+### What was tricky to build
+The crucial ordering constraint is at the slave endpoint. It must hold the object request until object acknowledgement, acknowledge the inbound mesh request exactly once, drain that request, and only then inject the response through the same local router. Injecting response too early risks contending with the router's local ACK_IN state. The contract therefore specifies explicit `WAIT_OBJECT`, `DRAIN_REQUEST`, and `INJECT_RESP` phases.
+
+### What warrants a second pair of eyes
+- Confirm that requiring response packets for writes is preferable to treating destination delivery as write completion; the uniform rule is safer but adds return latency.
+- Review the generated SystemVerilog package representation against Icarus and Yosys before freezing P3 output syntax.
+- Confirm weighted-degree greedy placement is sufficient for the six-node star before implementing a more complex optimizer.
+
+### What should be done in the future
+- P3 must implement the contract without silently accepting unknown schema fields or leaving partial outputs on failure.
+- P4 must expose transaction counters so request injection, target acceptance, response, and architectural acknowledgement counts can be compared.
+
+### Code review instructions
+- Read design-doc 05 §§2–9 first for evidence, decisions, packet encoding, and state machines.
+- Review §§12–14 as the executable acceptance contract for P3/P4.
+- Compare packet fields directly with `pca_types.sv` and bus fields with `z80_obj.sv`.
+
+### Technical details
+- Canonical input schema: `pca-placement-input/v1`.
+- Canonical output schema: `pca-placement/v1`.
+- One endpoint per object, 1×1 footprints, 3×3 baseline mesh.
+- One end-to-end transaction in flight; every operation returns `CMD_RESP`.
+- Dynamic pressure placement and physical LUT relocation remain outside scope.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

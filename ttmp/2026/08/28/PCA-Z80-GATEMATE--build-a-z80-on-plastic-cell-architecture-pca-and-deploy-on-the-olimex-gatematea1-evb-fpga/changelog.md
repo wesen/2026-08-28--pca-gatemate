@@ -257,3 +257,12 @@ Step 28 / continuation P1: printed overall and phase-start work slips; reconcile
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/04-static-mesh-integration-continuation-plan.md — Continuation phase map and acceptance gates
 
+
+## 2026-08-28
+
+Step 29 / continuation P2: froze deterministic static placer schemas, generated artifact rules, mesh request/response encoding, adapter state machines, reset/backpressure/anti-double invariants, and P3/P4 acceptance vectors; printed start and explainer thermal slips.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/05-static-placer-and-mesh-transport-contract.md — Normative contract for continuation P3 and P4
+
