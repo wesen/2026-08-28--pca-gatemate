@@ -230,3 +230,12 @@ Step 25: wrote textbook-style Obsidian deep-dive article (603 lines) covering PC
 
 - /home/manuel/code/wesen/go-go-golems/go-go-parc/Projects/2026/08/28/ARTICLE - PCA-Z80 - Firmware BRAM and Physical UART on GateMate.md — Published vault deep-dive report
 
+
+## 2026-08-28
+
+Step 26: audited and updated engineering report design-doc 02 from pre-hardware status to final measured evidence (512-byte BRAM firmware, 22 assembler tests, IX/IY subset, post-synth proof, physical blink and ACM0 Hi, current resources/timing/limitations); validated and uploaded versioned reMarkable bundle 'PCA-Z80 Engineering Report Final Hardware'.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/02-pca-z80-engineering-report.md — Updated final hardware report
+

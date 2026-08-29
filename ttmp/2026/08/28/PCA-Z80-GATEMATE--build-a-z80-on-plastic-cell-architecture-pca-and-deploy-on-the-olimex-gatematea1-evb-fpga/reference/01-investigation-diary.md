@@ -1692,6 +1692,72 @@ The article needed to report both achievement and limitation precisely. The Z80 
 - Vault push: `a1c04b0..44e1caf main -> main`.
 - Current hardware image: blink, debug LED mode 0, ROM 512, PnR seed 1.
 
+## Step 26: Update the engineering report to the final hardware evidence
+
+This step audited design-doc 02 after the ROM/BRAM/UART investigation and found that it materially understated the project: it still reported 19 assembler tests, a 256-byte non-BRAM ROM, no IX/IY support, a 220 KB bitstream, simulation-only UART, and a pending board load. The report was updated to the actual final state and published as a new versioned reMarkable bundle together with design-doc 03. The earlier reMarkable document was not overwritten, preserving any annotations.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Update the project report if necessary"
+
+**Assistant interpretation:** Compare the existing engineering report against the completed hardware investigation and update any stale architecture, verification, implementation, hardware, limitation, reproducibility, bug-diary, and conclusion claims.
+
+**Inferred user intent:** Ensure the main project handoff report reflects what now works physically and does not leave future readers believing board/UART bring-up remains pending.
+
+### What I did
+- Audited design-doc 02 for `UART`, `BRAM`, `ROM`, `hardware`, `physical`, resources, timing, test counts, limitations, and pending language.
+- Updated summary/current result to physical LED + physical `Hi` capture.
+- Updated Phase 3 scope through 3D.7 and documented the IX/IY subset.
+- Updated `obj_memio` description to registered 512×8 `CC_BRAM_20K` firmware ROM plus RAM/GPIO/UART.
+- Updated assembler behavior to include `--size` padded hardware images.
+- Updated verification table: 22 assembler tests, UART RTL, post-synthesis primitive execution, and observed physical hardware.
+- Updated implementation results: 256,096-byte bitstream; 7,168 LUTs; 2,558 FFs; 1 `RAM_HALF`; 51.19 MHz primary reported max and 29.54 MHz secondary reported path, both passing at 10 MHz; deterministic PnR seed 1.
+- Replaced "board load pending" with visible BRAM-backed blink and physical ACM0 `48 69` evidence.
+- Updated limitations to partial rather than absent DD/FD, ROM depth 512, physical UART complete, and PCA mesh placement still pending.
+- Added selected bug-diary entries for all-zero BRAM initialization and UART direction resolution.
+- Updated reproducibility commands to include `make sim_hello`, `make post_synth`, and seeded hardware build.
+- Updated conclusion: basic firmware, synthesis, loading, LED, and UART are complete; remaining work is ISA breadth and dynamic PCA integration.
+- Related report to final memory implementation, primitive checker, and design-doc 03.
+- Validated frontmatter and ran `docmgr doctor` (clean).
+- Dry-ran and uploaded a new reMarkable bundle named `PCA-Z80 Engineering Report Final Hardware`, containing design-docs 02 and 03.
+
+### Why
+The report is the review and handoff document. Leaving resolved hardware work marked pending would cause duplicated investigation and misrepresent acceptance evidence. A versioned reMarkable name avoids deleting prior annotations while making the updated status available.
+
+### What worked
+- A targeted stale-claim search (`UART|BRAM|ROM|hardware|pending|resource|timing`) located every materially outdated section quickly.
+- Design-doc 03 allowed the engineering report to remain concise while linking to the full evidence chain.
+- The updated bundle rendered and uploaded without errors.
+
+### What didn't work
+- No new implementation failure occurred.
+- The report had duplicate limitation statements for mesh placement after the first edit; consolidated them into one precise limitation before validation.
+
+### What I learned
+- Engineering reports need a final hardware-evidence audit after bring-up; test counts, resources, and limitations drift quickly during implementation.
+- Versioned publication is safer than `--force` when a reader may have annotated the previous reMarkable document.
+
+### What was tricky to build
+The report needed enough hardware detail to be authoritative without duplicating design-doc 03's complete debugging narrative. The updated report states measured outcomes and the corrected contract, then points to design-doc 03 for the staged inference, primitive-init, and CDC evidence.
+
+### What warrants a second pair of eyes
+- Confirm the final resource table remains representative across blink and hello debug modes; the table records the final production blink artifact.
+- Review whether the report should change status from `active` to `review`; substantial Phase 7 work remains, so `active` is retained.
+
+### What should be done in the future
+- Update resource/test counts only when future implementation phases materially change them.
+- Add placer/mesh results to limitations and conclusion when Phase 7 completes.
+
+### Code review instructions
+- Compare design-doc 02 §§1, 4–10 against design-doc 03 and commit `55f365a`.
+- Run `docmgr doctor --ticket PCA-Z80-GATEMATE --stale-after 30`.
+- The new reMarkable document is `PCA-Z80 Engineering Report Final Hardware` under `/ai/2026/08/28/PCA-Z80-GATEMATE`.
+
+### Technical details
+- Updated report retains `Status: active`.
+- Final production blink artifact: 256,096 bytes, 7,168 CPE_LT, 2,558 CPE_FF, one RAM_HALF, 51.19 MHz primary max.
+- Physical UART: `48 69` on DirtyJTAG CDC0 `/dev/ttyACM0`.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.
