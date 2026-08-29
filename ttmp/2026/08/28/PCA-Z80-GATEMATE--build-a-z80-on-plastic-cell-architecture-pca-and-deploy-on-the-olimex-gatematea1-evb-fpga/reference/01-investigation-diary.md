@@ -1624,6 +1624,74 @@ The guide needed to describe conclusions without hiding corrected assumptions. T
 - Remote directory: `/ai/2026/08/28/PCA-Z80-GATEMATE`.
 - Render failure fixed: literal `\\n` in diary prompt → real blockquote line breaks.
 
+## Step 25: Publish the Obsidian deep dive and restore the production blink
+
+This step published a textbook-style technical article to the `go-go-parc` Obsidian vault and restored the board from the UART diagnostic image to the production blink image. The article presents the complete PCA-Z80 project status and object architecture, then develops the firmware BRAM and physical UART investigation as a reusable verification method. It uses direct technical explanations, code, tables, Mermaid diagrams, commands, failure modes, and repository references without analogies. The vault commit was pushed to GitHub. The currently loaded FPGA image is now `blink.asm` with `DEBUG_LED_MODE=0`, not the sticky UART diagnostic image.
+
+### Prompt Context
+
+**User prompt (verbatim):**
+
+> write a detailed project report for the obsidian vault as a deep dive technical analysis blog post using a textbook writing style (no analogies, see skill).      
+> Commit and push the bsidian vault when done (go-go-parc vault).
+
+**User prompt (verbatim):** "should the LED be blinking rn btw? because it's not"
+
+**Assistant interpretation:** Create a durable, detailed Obsidian article about PCA-Z80 and the completed GateMate memory/UART investigation, commit and push only that note in the vault; explain that the currently loaded hello diagnostic uses a sticky UART indicator rather than blink, then reload production blink.
+
+**Inferred user intent:** Preserve the project and debugging knowledge in the main knowledge vault, and leave the physical board in the expected visible demonstration state.
+
+**Commit (vault):** 44e1caf — "Add PCA-Z80 GateMate firmware BRAM and UART deep dive"
+
+### What I did
+- Read the vault's article exemplar and related `PROJ - MATE-16 VM CPU on the GateMateA1-EVB` note to match frontmatter, prose rhythm, callout, diagrams, and link style.
+- Created `Projects/2026/08/28/ARTICLE - PCA-Z80 - Firmware BRAM and Physical UART on GateMate.md` (603 lines, about 24 KB).
+- Wrote sections covering: project purpose/status; object architecture; model-first verification; initial symptom; staged debugging; comparative project research; measured inference boundary; allocation vs initialization; corrected firmware contract; post-synth proof; debug LED modes; physical UART direction and CDC; PnR behavior; failure matrix; reproducible commands; decisions; limitations; repository references; working rules.
+- Explicitly stated current limitations: incomplete full Z80 compatibility and no runtime PCA placer/dynamic pressure allocation yet.
+- Validated frontmatter shape, heading structure, and the internal link to `[[PROJ - MATE-16 VM CPU on the GateMateA1-EVB]]`.
+- Staged only the new note; committed and pushed vault `main` to `origin` (`44e1caf`).
+- Explained that the loaded hello build used `DEBUG_LED_MODE=2`, where the LED is a sticky UART-start indicator and should not blink.
+- Built and loaded `PROG=blink DEBUG_LED_MODE=0 PNR_SEED=1`; load reached 100%, one `RAM_HALF` is present, timing passes at 51.19 MHz against 10 MHz. The board should now blink at roughly 310 ms per transition.
+
+### Why
+The ticket guide is implementation-facing; the vault article preserves the project as durable technical knowledge and makes the synthesis-debug method discoverable outside the ticket. Restoring the blink image prevents the diagnostic LED mode from being mistaken for a failed application.
+
+### What worked
+- The existing MATE-16 project note provided a relevant internal link and established the vault's hardware-project tone.
+- Append-only article creation avoided modifying historical notes.
+- Vault staging remained clean: only the intended article was committed.
+- The production blink build routed with seed 1 and loaded successfully.
+
+### What didn't work
+- No implementation failure occurred in this step.
+
+### What I learned
+- Diagnostic LED modes must be reported whenever a board image is changed. A sticky UART event and a GPIO blink are intentionally different observables.
+- A project article can state the broader architecture while retaining a narrow evidence chain for the most consequential debugging result.
+
+### What was tricky to build
+The article needed to report both achievement and limitation precisely. The Z80 object graph, physical firmware BRAM, and UART are real and tested; runtime placement onto the PCA mesh is not implemented. The note separates these claims explicitly so a future reader does not infer dynamic PCA behavior from the working processor demo.
+
+### What warrants a second pair of eyes
+- Confirm the current physical blink is visible at the expected approximately 1.6 Hz full-cycle rate.
+- Review the article's scope balance between general project architecture and the ROM/BRAM/UART deep dive.
+- If the vault article is published externally, check whether absolute local repository paths should remain visible.
+
+### What should be done in the future
+- Add a dedicated PCA-Z80 project note if the repository continues beyond this research phase; keep this article as the reusable technical deep dive.
+- Link future PCA placer/runtime-allocation reports back to this article.
+
+### Code review instructions
+- Vault: inspect commit `44e1caf`; verify it contains exactly one new note.
+- Board: current build command is `make bit PROG=blink DEBUG_LED_MODE=0 PNR_SEED=1`; the LED should blink.
+- Project: `make test`, `make sim_hello`, and `make post_synth PROG=blink` remain the regression sequence.
+
+### Technical details
+- Vault root: `/home/manuel/code/wesen/go-go-golems/go-go-parc`.
+- Note: `Projects/2026/08/28/ARTICLE - PCA-Z80 - Firmware BRAM and Physical UART on GateMate.md`.
+- Vault push: `a1c04b0..44e1caf main -> main`.
+- Current hardware image: blink, debug LED mode 0, ROM 512, PnR seed 1.
+
 ## Related
 
 - `sources/SOURCES.md` — the evidence-anchored source index.

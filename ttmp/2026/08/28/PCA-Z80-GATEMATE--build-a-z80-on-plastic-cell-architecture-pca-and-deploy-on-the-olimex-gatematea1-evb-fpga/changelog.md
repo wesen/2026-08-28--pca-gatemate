@@ -221,3 +221,12 @@ Step 24 publication: validated design-doc 03; dry-ran and bundle-uploaded guide 
 
 - /home/manuel/code/wesen/2026-08-28--pca-gatemate/ttmp/2026/08/28/PCA-Z80-GATEMATE--build-a-z80-on-plastic-cell-architecture-pca-and-deploy-on-the-olimex-gatematea1-evb-fpga/design-doc/03-gatemate-firmware-rom-bram-and-uart-bring-up-intern-guide.md — Published intern guide
 
+
+## 2026-08-28
+
+Step 25: wrote textbook-style Obsidian deep-dive article (603 lines) covering PCA-Z80 architecture and GateMate firmware BRAM/UART verification; committed and pushed go-go-parc vault as 44e1caf; restored physical board to BRAM-backed blink image (DEBUG_LED_MODE=0, PNR seed 1).
+
+### Related Files
+
+- /home/manuel/code/wesen/go-go-golems/go-go-parc/Projects/2026/08/28/ARTICLE - PCA-Z80 - Firmware BRAM and Physical UART on GateMate.md — Published vault deep-dive report
+
